@@ -1,0 +1,78 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Hiragino Sans", "Yu Gothic", sans-serif;
+  max-width: 600px;
+  margin: 40px auto;
+  padding: 0 16px;
+  color: #222;
+}
+
+.hidden {
+  display: none;
+}
+
+.mode-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+button {
+  font-size: 16px;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 6px;
+  background: #2f6fed;
+  color: #fff;
+  cursor: pointer;
+}
+
+button.secondary {
+  background: #ddd;
+  color: #222;
+}
+
+button:disabled {
+  background: #aaa;
+  cursor: not-allowed;
+}
+
+.button-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+#word-form {
+  display: flex;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+#word-input {
+  flex: 1;
+  font-size: 16px;
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+}
+
+.error {
+  color: #c0392b;
+}
+
+.banner {
+  background: #fdecea;
+  color: #c0392b;
+  padding: 12px;
+  border-radius: 6px;
+  font-weight: bold;
+}
+
+.history-list {
+  padding-left: 20px;
+}

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>しりとりアプリ</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<section id="screen-mode-select" class="screen">
+  <h1>しりとりアプリ</h1>
+  <p>モードを選んでください。</p>
+  <div id="mode-list" class="mode-list"></div>
+</section>
+
+<section id="screen-mode-description" class="screen hidden">
+  <h2 id="mode-title"></h2>
+  <p id="mode-description"></p>
+  <div class="button-row">
+    <button id="start-game-btn">ゲームスタート</button>
+    <button id="back-to-select-btn" class="secondary">モード選択に戻る</button>
+  </div>
+</section>
+
+<section id="screen-game" class="screen hidden">
+  <h2>しりとり</h2>
+
+  <p id="game-over-banner" class="banner hidden"></p>
+
+  <p>直前の単語: <strong id="current-word">-</strong></p>
+
+  <form id="word-form">
+    <input id="word-input" type="text" autocomplete="off" placeholder="次の単語を入力" />
+    <button type="submit">送信</button>
+  </form>
+
+  <p id="error-message" class="error hidden"></p>
+
+  <h3>履歴</h3>
+  <ol id="history-list" class="history-list"></ol>
+
+  <div class="button-row">
+    <button id="reset-btn">リセット</button>
+    <button id="back-to-select-from-game-btn" class="secondary">モード選択に戻る</button>
+  </div>
+</section>
+
+<script src="app.js"></script>
+</body>
+</html>

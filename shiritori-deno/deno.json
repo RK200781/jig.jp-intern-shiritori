@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "strict": true
+  },
+  "imports": {
+    "@std/http/file-server": "jsr:@std/http/file-server"
+  },
+  "tasks": {
+    "dev": "deno run -A --watch server.ts"
+  }
+}
