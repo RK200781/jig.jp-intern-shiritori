@@ -6,6 +6,6 @@
     "@std/http/file-server": "jsr:@std/http/file-server"
   },
   "tasks": {
-    "dev": "deno run -A --watch server.ts"
+    "dev": "deno run -A --env-file --watch server.ts"
   }
 }
