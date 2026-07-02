@@ -46,8 +46,13 @@ function selectMode(mode) {
 }
 
 async function fetchJson(url, options) {
-  const res = await fetch(url, options);
-  return res.json();
+  try {
+    const res = await fetch(url, options);
+    return await res.json();
+  } catch (err) {
+    console.error(`通信に失敗しました (${url}):`, err);
+    return { errorCode: "INVALID_BODY", isGameOver: false, history: [], currentWord: null, endReason: null };
+  }
 }
 
 function renderState(data) {
@@ -108,32 +113,38 @@ async function resetGame() {
   renderState(data);
 }
 
-document.getElementById("start-game-btn").addEventListener("click", async () => {
-  await resetGame();
-  showScreen("screen-game");
-});
-
-document.getElementById("back-to-select-btn").addEventListener("click", () => {
-  showScreen("screen-mode-select");
-});
-
-document.getElementById("back-to-select-from-game-btn").addEventListener("click", () => {
-  showScreen("screen-mode-select");
-});
-
-document.getElementById("word-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const input = document.getElementById("word-input");
-  const word = input.value.trim();
-  if (!word) return;
-  await submitWord(word);
-  input.value = "";
-  input.focus();
-});
-
-document.getElementById("reset-btn").addEventListener("click", async () => {
-  await resetGame();
-});
-
+// モード選択画面の表示は、通信やイベント配線より先に必ず実行する。
+// 以降の処理が失敗しても、最初の画面が消えたままになることはない。
 renderModeList();
 showScreen("screen-mode-select");
+
+try {
+  document.getElementById("start-game-btn").addEventListener("click", async () => {
+    await resetGame();
+    showScreen("screen-game");
+  });
+
+  document.getElementById("back-to-select-btn").addEventListener("click", () => {
+    showScreen("screen-mode-select");
+  });
+
+  document.getElementById("back-to-select-from-game-btn").addEventListener("click", () => {
+    showScreen("screen-mode-select");
+  });
+
+  document.getElementById("word-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = document.getElementById("word-input");
+    const word = input.value.trim();
+    if (!word) return;
+    await submitWord(word);
+    input.value = "";
+    input.focus();
+  });
+
+  document.getElementById("reset-btn").addEventListener("click", async () => {
+    await resetGame();
+  });
+} catch (err) {
+  console.error("イベント登録に失敗しました:", err);
+}
