@@ -167,6 +167,66 @@ async function wordExists(word: string): Promise<boolean | null> {
   }
 }
 
+interface JishoJapaneseEntry {
+  word?: string;
+  reading?: string;
+}
+
+interface JishoDataEntry {
+  japanese?: JishoJapaneseEntry[];
+}
+
+interface JishoResponse {
+  data?: JishoDataEntry[];
+}
+
+/**
+ * Checks whether `word` is a real Japanese word via Jisho's public
+ * dictionary API (JMdict-backed). Jisho's search itself does loose
+ * substring/fuzzy matching (e.g. searching a nonsense string can return
+ * unrelated entries that merely share a prefix), so this requires an EXACT
+ * match against a returned entry's headword or reading rather than treating
+ * "got any results" as existence. Returns null when the check could not be
+ * performed (network error, timeout, non-OK response).
+ */
+async function wordExistsInDictionary(word: string): Promise<boolean | null> {
+  try {
+    const url = new URL("https://jisho.org/api/v1/search/words");
+    url.searchParams.set("keyword", word);
+
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return null;
+
+    const data: JishoResponse = await res.json();
+    const entries = data.data ?? [];
+    return entries.some((entry) =>
+      (entry.japanese ?? []).some((j) => j.word === word || j.reading === word)
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Combines the dictionary (Jisho) and encyclopedia (Wikipedia) existence
+ * checks for 語彙力診断モード: a hiragana-only common noun very often has no
+ * hiragana-titled Wikipedia article (wordExists alone rejects it), while
+ * Jisho covers common dictionary words but not everything Wikipedia might
+ * (proper nouns, newer terms). A word is accepted if EITHER source confirms
+ * it, and rejected only when BOTH definitively say it doesn't exist;
+ * anything less conclusive (timeouts, errors) fails open.
+ */
+async function vocabWordExists(word: string): Promise<boolean | null> {
+  const dictResult = await wordExistsInDictionary(word);
+  if (dictResult === true) return true;
+
+  const wikiResult = await wordExists(word);
+  if (wikiResult === true) return true;
+
+  if (dictResult === false && wikiResult === false) return false;
+  return null;
+}
+
 type EndReason = "DUPLICATE" | "N_ENDING" | null;
 
 interface GameState {
@@ -264,6 +324,19 @@ const DAKUTEN_TO_SEION: Record<string, string> = {
 
 function candidatesFor(key: string, usedWords: string[]): string[] {
   return (vocabWords[key] ?? []).filter((w) => !usedWords.includes(w));
+}
+
+/**
+ * True when `word` is one of our curated hiragana vocabulary entries. Used to
+ * skip the Wikipedia existence check for words we already know are real:
+ * Wikipedia's opensearch matches article titles exactly, and most common
+ * hiragana-only nouns have no hiragana-titled article or redirect (e.g.
+ * "びょういん" has zero results even though 病院 is real), so relying on it
+ * alone rejects a lot of legitimate answers in a game whose CPU speaks
+ * entirely in hiragana.
+ */
+function isKnownVocabWord(word: string): boolean {
+  return Object.values(vocabWords).some((words) => words.includes(word));
 }
 
 /**
@@ -486,13 +559,17 @@ async function handlePostVocabPlayer(req: Request): Promise<Response> {
     }, 400);
   }
 
-  // 4. 実在チェック（API失敗時はfail-openで通過）
-  const exists = await wordExists(nextWord);
-  if (exists === false) {
-    return json({
-      errorCode: "VOCAB_NOT_REAL_WORD",
-      errorMessage: "実在する単語として見つかりませんでした。",
-    }, 400);
+  // 4. 実在チェック（自前の単語データベースにあれば即通過。無ければ
+  //    辞書(Jisho)とWikipediaの両方で確認し、どちらも「存在しない」と
+  //    判定した場合のみ却下する。API失敗時はfail-openで通過）
+  if (!isKnownVocabWord(nextWord)) {
+    const exists = await vocabWordExists(nextWord);
+    if (exists === false) {
+      return json({
+        errorCode: "VOCAB_NOT_REAL_WORD",
+        errorMessage: "実在する単語として見つかりませんでした。",
+      }, 400);
+    }
   }
 
   // 5. 既出チェック → プレイヤーの負け
