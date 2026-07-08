@@ -1,5 +1,28 @@
 import { serveDir } from "@std/http/file-server";
 
+/** Word list for 語彙力診断モード, keyed by leading hiragana character. */
+let vocabWords: Record<string, string[]> = {};
+
+/**
+ * Loads data/words.json once at startup. On failure, logs the error and
+ * leaves vocabWords empty so CPU-vocabulary features degrade gracefully
+ * (pickCpuWord will simply find no candidates) instead of crashing the server.
+ */
+async function loadVocabWords(): Promise<void> {
+  try {
+    const url = new URL("./data/words.json", import.meta.url);
+    const text = await Deno.readTextFile(url);
+    vocabWords = JSON.parse(text);
+    const total = Object.values(vocabWords).reduce((sum, words) => sum + words.length, 0);
+    console.log(`[vocab] loaded ${total} words across ${Object.keys(vocabWords).length} keys from data/words.json`);
+  } catch (err) {
+    console.error("[vocab] failed to load data/words.json; 語彙力診断モード will have no CPU candidates:", err);
+    vocabWords = {};
+  }
+}
+
+await loadVocabWords();
+
 /**
  * Small (contracted) kana are normalized to their base form only when
  * comparing the boundary characters between two words/readings.
@@ -169,6 +192,110 @@ function currentReading(): string | null {
   return state.readingHistories.at(-1) ?? null;
 }
 
+// ---- 語彙力診断モード ----
+
+interface VocabGameState {
+  wordHistories: string[];
+  /** Kana reading for each entry in wordHistories, same index. */
+  readingHistories: string[];
+  isGameOver: boolean;
+  winner: "player" | "cpu" | null;
+  currentTurn: "player" | "cpu";
+  turnStartedAt: number | null;
+  score: number;
+  turnCount: number;
+}
+
+type VocabErrorCode =
+  | "VOCAB_NOT_CONNECTED"
+  | "VOCAB_NOT_REAL_WORD"
+  | "VOCAB_ALREADY_USED"
+  | "VOCAB_ENDS_WITH_N"
+  | "VOCAB_TIMEOUT";
+
+interface VocabPlayerRequest {
+  nextWord: string;
+  elapsedSeconds: number;
+  isTimeout: boolean;
+}
+
+interface VocabPlayerResponse {
+  cpuWord: string | null;
+  wordHistories: string[];
+  isGameOver: boolean;
+  winner: "player" | "cpu" | null;
+  isCpuLose: boolean;
+  errorCode?: VocabErrorCode | null;
+  finalScore?: number;
+  turnCount?: number;
+}
+
+function freshVocabState(): VocabGameState {
+  return {
+    wordHistories: [],
+    readingHistories: [],
+    isGameOver: false,
+    winner: null,
+    currentTurn: "cpu",
+    turnStartedAt: null,
+    score: 0,
+    turnCount: 0,
+  };
+}
+
+let vocabState: VocabGameState = freshVocabState();
+
+/**
+ * Maps 濁音/半濁音 kana to their 清音 (plain) equivalent. Used as a fallback CPU
+ * word source when a voiced key has no candidates: ぢ and づ never have real
+ * Japanese words (modern kana usage confines them to mid-word rendaku, e.g.
+ * 「はなぢ」「つづく」, so no word actually starts with them), and other voiced
+ * keys are sparse enough to run dry during a long game. Falling back to the
+ * plain-kana pool (ぢ→ち, づ→つ, etc.) keeps the CPU able to respond instead of
+ * forfeiting on a technicality.
+ */
+const DAKUTEN_TO_SEION: Record<string, string> = {
+  "が": "か", "ぎ": "き", "ぐ": "く", "げ": "け", "ご": "こ",
+  "ざ": "さ", "じ": "し", "ず": "す", "ぜ": "せ", "ぞ": "そ",
+  "だ": "た", "ぢ": "ち", "づ": "つ", "で": "て", "ど": "と",
+  "ば": "は", "び": "ひ", "ぶ": "ふ", "べ": "へ", "ぼ": "ほ",
+  "ぱ": "は", "ぴ": "ひ", "ぷ": "ふ", "ぺ": "へ", "ぽ": "ほ",
+};
+
+function candidatesFor(key: string, usedWords: string[]): string[] {
+  return (vocabWords[key] ?? []).filter((w) => !usedWords.includes(w));
+}
+
+/**
+ * Picks a random CPU word starting with `lastChar` that hasn't been used yet.
+ * Falls back to the 清音 (plain) equivalent key when `lastChar` is a voiced
+ * kana with no remaining candidates (see DAKUTEN_TO_SEION). Returns null only
+ * when both the exact key and its fallback have no candidates (CPU loses).
+ */
+function pickCpuWord(lastChar: string, usedWords: string[]): string | null {
+  const candidates = candidatesFor(lastChar, usedWords);
+  if (candidates.length > 0) {
+    return candidates[Math.floor(Math.random() * candidates.length)];
+  }
+
+  const seion = DAKUTEN_TO_SEION[lastChar];
+  if (seion) {
+    const seionCandidates = candidatesFor(seion, usedWords);
+    if (seionCandidates.length > 0) {
+      return seionCandidates[Math.floor(Math.random() * seionCandidates.length)];
+    }
+  }
+
+  return null;
+}
+
+/** Picks a uniformly random word across the entire vocabulary, or null if empty. */
+function pickRandomWord(): string | null {
+  const allWords = Object.values(vocabWords).flat();
+  if (allWords.length === 0) return null;
+  return allWords[Math.floor(Math.random() * allWords.length)];
+}
+
 function publicState(extra: { errorCode?: string } = {}) {
   return {
     currentWord: currentWord(),
@@ -255,6 +382,203 @@ async function handlePostReset(): Promise<Response> {
   return json(publicState());
 }
 
+// ---- 語彙力診断モード エンドポイント ----
+
+function vocabPublicState(extra: { errorCode?: string } = {}) {
+  return {
+    currentWord: vocabState.wordHistories.at(-1) ?? null,
+    wordHistories: vocabState.wordHistories,
+    isGameOver: vocabState.isGameOver,
+    winner: vocabState.winner,
+    currentTurn: vocabState.currentTurn,
+    errorCode: extra.errorCode ?? null,
+  };
+}
+
+async function handleGetVocab(): Promise<Response> {
+  return json(vocabPublicState());
+}
+
+async function handlePostVocabStart(): Promise<Response> {
+  vocabState = freshVocabState();
+
+  const cpuWord = pickRandomWord();
+  if (cpuWord === null) {
+    // words.json が読み込めなかった場合などの防御的フォールバック。
+    vocabState.isGameOver = true;
+    vocabState.winner = "player";
+    const response: VocabPlayerResponse = {
+      cpuWord: null,
+      wordHistories: vocabState.wordHistories,
+      isGameOver: true,
+      winner: "player",
+      isCpuLose: true,
+    };
+    return json(response);
+  }
+
+  vocabState.wordHistories.push(cpuWord);
+  vocabState.readingHistories.push(cpuWord); // 語彙リストの単語はひらがな表記なので読み取得は不要
+  vocabState.currentTurn = "player";
+  vocabState.turnStartedAt = Date.now();
+
+  const response: VocabPlayerResponse = {
+    cpuWord,
+    wordHistories: vocabState.wordHistories,
+    isGameOver: false,
+    winner: null,
+    isCpuLose: false,
+  };
+  return json(response);
+}
+
+const VOCAB_BASE_SCORE = 100;
+
+function computeTurnScore(elapsedSeconds: number): number {
+  const clamped = Math.max(0, elapsedSeconds);
+  const timeBonus = Math.max(0, Math.floor((10 - clamped) * 10));
+  return VOCAB_BASE_SCORE + timeBonus;
+}
+
+async function handlePostVocabPlayer(req: Request): Promise<Response> {
+  if (vocabState.isGameOver) {
+    return json({ errorCode: null, errorMessage: "ゲームはすでに終了しています。リセットしてください。" }, 409);
+  }
+
+  let body: Partial<VocabPlayerRequest>;
+  try {
+    body = await req.json();
+  } catch {
+    return json({ errorCode: "VOCAB_NOT_REAL_WORD", errorMessage: "通信エラーが発生しました。" }, 400);
+  }
+
+  // 1. タイムアウト → プレイヤーの負け
+  if (body.isTimeout === true) {
+    vocabState.isGameOver = true;
+    vocabState.winner = "cpu";
+    const response: VocabPlayerResponse = {
+      cpuWord: null,
+      wordHistories: vocabState.wordHistories,
+      isGameOver: true,
+      winner: "cpu",
+      isCpuLose: false,
+      errorCode: "VOCAB_TIMEOUT",
+      finalScore: vocabState.score,
+      turnCount: vocabState.turnCount,
+    };
+    return json(response);
+  }
+
+  const nextWord = typeof body.nextWord === "string" ? body.nextWord.trim() : "";
+
+  // 2. 入力が空でないか
+  if (!nextWord) {
+    return json({ errorCode: "VOCAB_NOT_REAL_WORD", errorMessage: "単語を入力してください。" }, 400);
+  }
+
+  // 3. 接続判定（読みベース。API失敗時は表記そのものにフォールバック）
+  const nextReading = (await getReading(nextWord)) ?? nextWord;
+  const prevReading = vocabState.readingHistories.at(-1) ?? null;
+  if (prevReading && !isConnected(prevReading, nextReading)) {
+    return json({
+      errorCode: "VOCAB_NOT_CONNECTED",
+      errorMessage: "前の単語に続いていません。",
+    }, 400);
+  }
+
+  // 4. 実在チェック（API失敗時はfail-openで通過）
+  const exists = await wordExists(nextWord);
+  if (exists === false) {
+    return json({
+      errorCode: "VOCAB_NOT_REAL_WORD",
+      errorMessage: "実在する単語として見つかりませんでした。",
+    }, 400);
+  }
+
+  // 5. 既出チェック → プレイヤーの負け
+  if (vocabState.wordHistories.includes(nextWord)) {
+    vocabState.isGameOver = true;
+    vocabState.winner = "cpu";
+    const response: VocabPlayerResponse = {
+      cpuWord: null,
+      wordHistories: vocabState.wordHistories,
+      isGameOver: true,
+      winner: "cpu",
+      isCpuLose: false,
+      errorCode: "VOCAB_ALREADY_USED",
+      finalScore: vocabState.score,
+      turnCount: vocabState.turnCount,
+    };
+    return json(response);
+  }
+
+  // 6. 「ん」チェック → プレイヤーの負け
+  if (endsWithN(nextReading)) {
+    vocabState.wordHistories.push(nextWord);
+    vocabState.readingHistories.push(nextReading);
+    vocabState.isGameOver = true;
+    vocabState.winner = "cpu";
+    const response: VocabPlayerResponse = {
+      cpuWord: null,
+      wordHistories: vocabState.wordHistories,
+      isGameOver: true,
+      winner: "cpu",
+      isCpuLose: false,
+      errorCode: "VOCAB_ENDS_WITH_N",
+      finalScore: vocabState.score,
+      turnCount: vocabState.turnCount,
+    };
+    return json(response);
+  }
+
+  // 7. 全通過 → 履歴追加・スコア加算
+  vocabState.wordHistories.push(nextWord);
+  vocabState.readingHistories.push(nextReading);
+
+  const elapsedSeconds = typeof body.elapsedSeconds === "number" ? body.elapsedSeconds : 10;
+  vocabState.score += computeTurnScore(elapsedSeconds);
+  vocabState.turnCount += 1;
+
+  // 8. CPUの単語選択
+  const lastChar = normalizeEdgeChar(nextReading.at(-1) ?? "");
+  const cpuWord = pickCpuWord(lastChar, vocabState.wordHistories);
+
+  if (cpuWord === null) {
+    vocabState.isGameOver = true;
+    vocabState.winner = "player";
+    const response: VocabPlayerResponse = {
+      cpuWord: null,
+      wordHistories: vocabState.wordHistories,
+      isGameOver: true,
+      winner: "player",
+      isCpuLose: true,
+      errorCode: null,
+      finalScore: vocabState.score,
+      turnCount: vocabState.turnCount,
+    };
+    return json(response);
+  }
+
+  vocabState.wordHistories.push(cpuWord);
+  vocabState.readingHistories.push(cpuWord);
+  vocabState.turnStartedAt = Date.now();
+
+  const response: VocabPlayerResponse = {
+    cpuWord,
+    wordHistories: vocabState.wordHistories,
+    isGameOver: false,
+    winner: null,
+    isCpuLose: false,
+    errorCode: null,
+  };
+  return json(response);
+}
+
+async function handlePostVocabReset(): Promise<Response> {
+  vocabState = freshVocabState();
+  return json(vocabPublicState());
+}
+
 Deno.serve((req: Request) => {
   const { pathname } = new URL(req.url);
 
@@ -266,6 +590,18 @@ Deno.serve((req: Request) => {
   }
   if (pathname === "/reset" && req.method === "POST") {
     return handlePostReset();
+  }
+  if (pathname === "/vocab" && req.method === "GET") {
+    return handleGetVocab();
+  }
+  if (pathname === "/vocab/start" && req.method === "POST") {
+    return handlePostVocabStart();
+  }
+  if (pathname === "/vocab/player" && req.method === "POST") {
+    return handlePostVocabPlayer(req);
+  }
+  if (pathname === "/vocab/reset" && req.method === "POST") {
+    return handlePostVocabReset();
   }
 
   return serveDir(req, { fsRoot: "public" });

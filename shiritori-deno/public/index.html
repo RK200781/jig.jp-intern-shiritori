@@ -47,6 +47,36 @@
   </div>
 </section>
 
+<section id="screen-vocab-game" class="screen hidden">
+  <h2>語彙力診断モード</h2>
+
+  <p id="vocab-game-over-banner" class="banner hidden"></p>
+
+  <div class="vocab-status-row">
+    <p>スコア: <strong id="vocab-score">0</strong></p>
+    <p>ターン数: <strong id="vocab-turn-count">0</strong></p>
+  </div>
+
+  <p>CPUの単語: <strong id="vocab-cpu-word">-</strong></p>
+  <p id="vocab-thinking" class="thinking hidden">CPUが考えています...</p>
+  <p id="vocab-timer" class="timer hidden"><span id="vocab-timer-seconds">10</span> 秒</p>
+
+  <form id="vocab-word-form">
+    <input id="vocab-word-input" type="text" autocomplete="off" placeholder="次の単語を入力" disabled />
+    <button type="submit" disabled>送信</button>
+  </form>
+
+  <p id="vocab-error-message" class="error hidden"></p>
+
+  <h3>履歴</h3>
+  <ol id="vocab-history-list" class="history-list"></ol>
+
+  <div class="button-row">
+    <button id="vocab-reset-btn">リセット</button>
+    <button id="vocab-back-to-select-btn" class="secondary">モード選択に戻る</button>
+  </div>
+</section>
+
 <script src="app.js"></script>
 
 <!-- Begin Yahoo! JAPAN Web Services Attribution Snippet -->

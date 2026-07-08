@@ -77,3 +77,35 @@ button:disabled {
 .history-list {
   padding-left: 20px;
 }
+
+#mode-description {
+  white-space: pre-line;
+}
+
+.vocab-status-row {
+  display: flex;
+  gap: 24px;
+}
+
+.thinking {
+  color: #666;
+  font-style: italic;
+}
+
+.timer {
+  font-size: 28px;
+  font-weight: bold;
+}
+
+.timer.timer-warning {
+  color: #c0392b;
+}
+
+.history-cpu {
+  color: #555;
+}
+
+.history-player {
+  color: #2f6fed;
+  font-weight: bold;
+}
