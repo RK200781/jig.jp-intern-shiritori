@@ -186,10 +186,20 @@ interface JishoResponse {
  * substring/fuzzy matching (e.g. searching a nonsense string can return
  * unrelated entries that merely share a prefix), so this requires an EXACT
  * match against a returned entry's headword or reading rather than treating
- * "got any results" as existence. Returns null when the check could not be
- * performed (network error, timeout, non-OK response).
+ * "got any results" as existence.
+ *
+ * Jisho stores the reading of loanwords/proper nouns (e.g. country names)
+ * in katakana (e.g. "エジプト"), so a hiragana entry's reading is compared
+ * against `normalizedReading` (the already katakana->hiragana normalized
+ * reading of the player's input, from getReading+normalizeKana) rather than
+ * against `word` directly - this lets hiragana, katakana, and kanji input
+ * all match the same dictionary entry. Returns null when the check could
+ * not be performed (network error, timeout, non-OK response).
  */
-async function wordExistsInDictionary(word: string): Promise<boolean | null> {
+async function wordExistsInDictionary(
+  word: string,
+  normalizedReading: string,
+): Promise<boolean | null> {
   try {
     const url = new URL("https://jisho.org/api/v1/search/words");
     url.searchParams.set("keyword", word);
@@ -200,7 +210,11 @@ async function wordExistsInDictionary(word: string): Promise<boolean | null> {
     const data: JishoResponse = await res.json();
     const entries = data.data ?? [];
     return entries.some((entry) =>
-      (entry.japanese ?? []).some((j) => j.word === word || j.reading === word)
+      (entry.japanese ?? []).some((j) =>
+        j.word === word ||
+        j.reading === word ||
+        (j.reading != null && normalizeKana(j.reading) === normalizedReading)
+      )
     );
   } catch {
     return null;
@@ -216,8 +230,8 @@ async function wordExistsInDictionary(word: string): Promise<boolean | null> {
  * it, and rejected only when BOTH definitively say it doesn't exist;
  * anything less conclusive (timeouts, errors) fails open.
  */
-async function vocabWordExists(word: string): Promise<boolean | null> {
-  const dictResult = await wordExistsInDictionary(word);
+async function vocabWordExists(word: string, normalizedReading: string): Promise<boolean | null> {
+  const dictResult = await wordExistsInDictionary(word, normalizedReading);
   if (dictResult === true) return true;
 
   const wikiResult = await wordExists(word);
@@ -269,6 +283,7 @@ interface VocabGameState {
 type VocabErrorCode =
   | "VOCAB_NOT_CONNECTED"
   | "VOCAB_NOT_REAL_WORD"
+  | "VOCAB_TOO_SHORT"
   | "VOCAB_ALREADY_USED"
   | "VOCAB_ENDS_WITH_N"
   | "VOCAB_TIMEOUT";
@@ -551,6 +566,16 @@ async function handlePostVocabPlayer(req: Request): Promise<Response> {
 
   // 3. 接続判定（読みベース。API失敗時は表記そのものにフォールバック）
   const nextReading = (await getReading(nextWord)) ?? nextWord;
+
+  // 3.5 文字数チェック（読みが1文字の単語は禁止。「ち」に対して「血」のような
+  //    単漢字読みへの逃げを防ぎ、語彙力診断としての意味を保つため）
+  if (nextReading.length < 2) {
+    return json({
+      errorCode: "VOCAB_TOO_SHORT",
+      errorMessage: "1文字の単語は使えません。2文字以上の単語を入力してください。",
+    }, 400);
+  }
+
   const prevReading = vocabState.readingHistories.at(-1) ?? null;
   if (prevReading && !isConnected(prevReading, nextReading)) {
     return json({
@@ -559,11 +584,14 @@ async function handlePostVocabPlayer(req: Request): Promise<Response> {
     }, 400);
   }
 
-  // 4. 実在チェック（自前の単語データベースにあれば即通過。無ければ
-  //    辞書(Jisho)とWikipediaの両方で確認し、どちらも「存在しない」と
-  //    判定した場合のみ却下する。API失敗時はfail-openで通過）
-  if (!isKnownVocabWord(nextWord)) {
-    const exists = await vocabWordExists(nextWord);
+  // 4. 実在チェック（ひらがな・カタカナ・漢字のどの表記で入力されても
+  //    同じ語として判定できるよう、正規化した読みも併用する。
+  //    自前の単語データベースにあれば即通過。無ければ辞書(Jisho)と
+  //    Wikipediaの両方で確認し、どちらも「存在しない」と判定した場合の
+  //    み却下する。API失敗時はfail-openで通過）
+  const normalizedNextReading = normalizeKana(nextReading);
+  if (!isKnownVocabWord(nextWord) && !isKnownVocabWord(normalizedNextReading)) {
+    const exists = await vocabWordExists(nextWord, normalizedNextReading);
     if (exists === false) {
       return json({
         errorCode: "VOCAB_NOT_REAL_WORD",

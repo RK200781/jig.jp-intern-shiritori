@@ -127,6 +127,7 @@ async function resetGame() {
 const VOCAB_CONTINUE_ERROR_MESSAGES = {
   VOCAB_NOT_CONNECTED: "しりとりが繋がっていません。前の単語の最後の文字から始めてください。",
   VOCAB_NOT_REAL_WORD: "実在する単語として見つかりませんでした。別の単語を試してください。",
+  VOCAB_TOO_SHORT: "1文字の単語は使えません。2文字以上の単語を入力してください。",
 };
 
 const VOCAB_END_MESSAGES = {
