@@ -112,7 +112,10 @@ interface YahooFuriganaResponse {
  */
 async function getReading(word: string): Promise<string | null> {
   const appId = Deno.env.get("YAHOO_APP_ID");
-  if (!appId) return null;
+  if (!appId) {
+    console.error("[getReading] YAHOO_APP_ID is not set; falling back to surface form");
+    return null;
+  }
 
   try {
     const res = await fetch("https://jlp.yahooapis.jp/FuriganaService/V2/furigana", {
@@ -129,14 +132,26 @@ async function getReading(word: string): Promise<string | null> {
       }),
       signal: AbortSignal.timeout(5000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const bodyText = await res.text().catch(() => "");
+      console.error(`[getReading] Yahoo API returned ${res.status} ${res.statusText} for "${word}": ${bodyText}`);
+      return null;
+    }
 
     const data: YahooFuriganaResponse = await res.json();
+    if (data.error) {
+      console.error(`[getReading] Yahoo API error for "${word}": ${data.error.code} ${data.error.message}`);
+      return null;
+    }
     const words = data.result?.word;
-    if (!words || words.length === 0) return null;
+    if (!words || words.length === 0) {
+      console.error(`[getReading] Yahoo API returned no words for "${word}"`);
+      return null;
+    }
 
     return normalizeKana(words.map((w) => w.furigana ?? w.surface).join(""));
-  } catch {
+  } catch (err) {
+    console.error(`[getReading] fetch failed for "${word}":`, err);
     return null;
   }
 }
