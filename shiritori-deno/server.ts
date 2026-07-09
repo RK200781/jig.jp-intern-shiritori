@@ -223,14 +223,16 @@ async function wordExistsInDictionary(
 
 /**
  * Combines the dictionary (Jisho) and encyclopedia (Wikipedia) existence
- * checks for 語彙力診断モード: a hiragana-only common noun very often has no
- * hiragana-titled Wikipedia article (wordExists alone rejects it), while
- * Jisho covers common dictionary words but not everything Wikipedia might
- * (proper nouns, newer terms). A word is accepted if EITHER source confirms
- * it, and rejected only when BOTH definitively say it doesn't exist;
- * anything less conclusive (timeouts, errors) fails open.
+ * checks used by both game modes: a hiragana-only common noun very often has
+ * no hiragana-titled Wikipedia article (wordExists alone rejects it), and a
+ * country/proper-noun name typed in hiragana or kanji won't exact-match its
+ * katakana-titled Wikipedia article either, while Jisho covers common
+ * dictionary words but not everything Wikipedia might (proper nouns, newer
+ * terms). A word is accepted if EITHER source confirms it, and rejected only
+ * when BOTH definitively say it doesn't exist; anything less conclusive
+ * (timeouts, errors) fails open.
  */
-async function vocabWordExists(word: string, normalizedReading: string): Promise<boolean | null> {
+async function checkWordExists(word: string, normalizedReading: string): Promise<boolean | null> {
   const dictResult = await wordExistsInDictionary(word, normalizedReading);
   if (dictResult === true) return true;
 
@@ -428,26 +430,36 @@ async function handlePostShiritori(req: Request): Promise<Response> {
   //    （フォールバック時は従来どおり表記の末尾・先頭で接続判定される）。
   const nextReading = (await getReading(nextWord)) ?? nextWord;
 
-  // 3. 接続判定（読みベース。長音「ー」等はnormalizeKanaで正規化済み）
+  // 3. 文字数チェック（表記の文字数ではなく、ひらがな読みが1文字の単語を禁止する。
+  //    例えば「犬」は表記1文字だが読み「いぬ」は2文字なので通過する。
+  //    「血」→「ち」のような単漢字読みへの逃げを防ぐのが目的）
+  if (nextReading.length < 2) {
+    return json(publicState({ errorCode: "TOO_SHORT" }), 400);
+  }
+
+  // 4. 接続判定（読みベース。長音「ー」等はnormalizeKanaで正規化済み）
   const prevReading = currentReading();
   if (prevReading && !isConnected(prevReading, nextReading)) {
     return json(publicState({ errorCode: "NOT_CONNECTED" }), 400);
   }
 
-  // 4. 実在チェック（表記ベース。API 失敗時は fail-open で通過させる）
-  const exists = await wordExists(nextWord);
+  // 5. 実在チェック（ひらがな・カタカナ・漢字のどの表記で入力されても同じ語
+  //    として判定できるよう、正規化した読みも併用して辞書とWikipediaの両方
+  //    を確認する。API 失敗時は fail-open で通過させる）
+  const normalizedNextReading = normalizeKana(nextReading);
+  const exists = await checkWordExists(nextWord, normalizedNextReading);
   if (exists === false) {
     return json(publicState({ errorCode: "NOT_FOUND" }), 400);
   }
 
-  // 5. 既出チェック → 終了（表記ベース。同じ読みでも別表記なら既出扱いしない）
+  // 6. 既出チェック → 終了（表記ベース。同じ読みでも別表記なら既出扱いしない）
   if (state.wordHistories.includes(nextWord)) {
     state.isGameOver = true;
     state.endReason = "DUPLICATE";
     return json(publicState({ errorCode: "DUPLICATE" }));
   }
 
-  // 6. 「ん」チェック → 終了（読みベース。表記が漢字でも読みが「ん」で終われば終了）
+  // 7. 「ん」チェック → 終了（読みベース。表記が漢字でも読みが「ん」で終われば終了）
   if (endsWithN(nextReading)) {
     state.wordHistories.push(nextWord);
     state.readingHistories.push(nextReading);
@@ -456,7 +468,7 @@ async function handlePostShiritori(req: Request): Promise<Response> {
     return json(publicState({ errorCode: "N_ENDING" }));
   }
 
-  // 7. 通過で履歴追加・更新
+  // 8. 通過で履歴追加・更新
   state.wordHistories.push(nextWord);
   state.readingHistories.push(nextReading);
   return json(publicState());
@@ -567,12 +579,13 @@ async function handlePostVocabPlayer(req: Request): Promise<Response> {
   // 3. 接続判定（読みベース。API失敗時は表記そのものにフォールバック）
   const nextReading = (await getReading(nextWord)) ?? nextWord;
 
-  // 3.5 文字数チェック（読みが1文字の単語は禁止。「ち」に対して「血」のような
-  //    単漢字読みへの逃げを防ぎ、語彙力診断としての意味を保つため）
+  // 3.5 文字数チェック（表記の文字数ではなく、ひらがな読みが1文字の単語を禁止する。
+  //    例えば「犬」は表記1文字だが読み「いぬ」は2文字なので通過する。
+  //    「血」→「ち」のような単漢字読みへの逃げを防ぎ、語彙力診断としての意味を保つため）
   if (nextReading.length < 2) {
     return json({
       errorCode: "VOCAB_TOO_SHORT",
-      errorMessage: "1文字の単語は使えません。2文字以上の単語を入力してください。",
+      errorMessage: "読みがひらがな1文字の単語は使えません。ひらがなで2文字以上の単語を入力してください。",
     }, 400);
   }
 
@@ -591,7 +604,7 @@ async function handlePostVocabPlayer(req: Request): Promise<Response> {
   //    み却下する。API失敗時はfail-openで通過）
   const normalizedNextReading = normalizeKana(nextReading);
   if (!isKnownVocabWord(nextWord) && !isKnownVocabWord(normalizedNextReading)) {
-    const exists = await vocabWordExists(nextWord, normalizedNextReading);
+    const exists = await checkWordExists(nextWord, normalizedNextReading);
     if (exists === false) {
       return json({
         errorCode: "VOCAB_NOT_REAL_WORD",

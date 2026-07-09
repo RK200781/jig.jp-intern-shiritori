@@ -6,7 +6,7 @@ const MODES = [
     description:
       "基本のしりとりルールで遊びます。前の単語の最後の文字から始まる単語を入力してください。" +
       "「ん」で終わる単語を入力するとゲーム終了、すでに使った単語を入力してもゲーム終了です。" +
-      "入力された単語は Wikipedia で実在するかどうかをチェックします。",
+      "入力された単語は辞書・Wikipedia で実在するかどうかをチェックします。",
   },
   {
     id: "vocab",
@@ -21,6 +21,7 @@ const MODES = [
 
 const ERROR_MESSAGES = {
   EMPTY: "単語を入力してください。",
+  TOO_SHORT: "読みがひらがな1文字の単語は使えません。ひらがなで2文字以上の単語を入力してください。",
   NOT_CONNECTED: "しりとりが繋がっていません。前の単語の最後の文字から始めてください。",
   NOT_FOUND: "実在する単語として見つかりませんでした。別の単語を試してください。",
   DUPLICATE: "すでに使われた単語です。ゲーム終了です。",
@@ -127,7 +128,7 @@ async function resetGame() {
 const VOCAB_CONTINUE_ERROR_MESSAGES = {
   VOCAB_NOT_CONNECTED: "しりとりが繋がっていません。前の単語の最後の文字から始めてください。",
   VOCAB_NOT_REAL_WORD: "実在する単語として見つかりませんでした。別の単語を試してください。",
-  VOCAB_TOO_SHORT: "1文字の単語は使えません。2文字以上の単語を入力してください。",
+  VOCAB_TOO_SHORT: "読みがひらがな1文字の単語は使えません。ひらがなで2文字以上の単語を入力してください。",
 };
 
 const VOCAB_END_MESSAGES = {
