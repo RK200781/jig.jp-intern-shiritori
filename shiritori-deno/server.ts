@@ -1,4 +1,6 @@
 import { serveDir } from "@std/http/file-server";
+/// <reference types="@types/kuromoji" />
+import kuromoji from "kuromoji";
 
 /** Word list for 語彙力診断モード, keyed by leading hiragana character. */
 let vocabWords: Record<string, string[]> = {};
@@ -91,69 +93,37 @@ function normalizeKana(kana: string): string {
   return result.join("");
 }
 
-interface YahooFuriganaWord {
-  surface: string;
-  furigana?: string;
-  roman?: string;
-}
-
-interface YahooFuriganaResponse {
-  id?: string;
-  jsonrpc?: string;
-  result?: { word: YahooFuriganaWord[] };
-  error?: { code: number; message: string };
-}
+let tokenizer: kuromoji.Tokenizer<kuromoji.IpadicFeatures> | null = null;
 
 /**
- * Fetches the kana reading of `word` via Yahoo! JAPAN's Furigana API (V2).
- * Returns null when the API can't be used (no APP_ID, network error,
- * timeout, non-OK response, or an unexpected response shape) so callers
- * can fall back to the raw surface form instead of blocking gameplay.
+ * Builds the kuromoji tokenizer once at startup from the bundled IPADIC
+ * dictionary (data/kuromoji-dict/). Reading extraction runs entirely
+ * in-process, so unlike the previous Yahoo! Furigana API integration it
+ * has no dependency on network access, an API key, or a third-party
+ * service's regional availability.
  */
-async function getReading(word: string): Promise<string | null> {
-  const appId = Deno.env.get("YAHOO_APP_ID");
-  if (!appId) {
-    console.error("[getReading] YAHOO_APP_ID is not set; falling back to surface form");
-    return null;
-  }
-
-  try {
-    const res = await fetch("https://jlp.yahooapis.jp/FuriganaService/V2/furigana", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": `Yahoo AppID: ${appId}`,
-      },
-      body: JSON.stringify({
-        id: "1",
-        jsonrpc: "2.0",
-        method: "jlp.furiganaservice.furigana",
-        params: { q: word, grade: 1 },
-      }),
-      signal: AbortSignal.timeout(5000),
+async function loadTokenizer(): Promise<void> {
+  const dicPath = new URL("./data/kuromoji-dict/", import.meta.url).pathname;
+  tokenizer = await new Promise((resolve, reject) => {
+    kuromoji.builder({ dicPath }).build((err, built) => {
+      if (err) reject(err);
+      else resolve(built);
     });
-    if (!res.ok) {
-      const bodyText = await res.text().catch(() => "");
-      console.error(`[getReading] Yahoo API returned ${res.status} ${res.statusText} for "${word}": ${bodyText}`);
-      return null;
-    }
+  });
+  console.log("[reading] kuromoji tokenizer ready");
+}
 
-    const data: YahooFuriganaResponse = await res.json();
-    if (data.error) {
-      console.error(`[getReading] Yahoo API error for "${word}": ${data.error.code} ${data.error.message}`);
-      return null;
-    }
-    const words = data.result?.word;
-    if (!words || words.length === 0) {
-      console.error(`[getReading] Yahoo API returned no words for "${word}"`);
-      return null;
-    }
+await loadTokenizer();
 
-    return normalizeKana(words.map((w) => w.furigana ?? w.surface).join(""));
-  } catch (err) {
-    console.error(`[getReading] fetch failed for "${word}":`, err);
-    return null;
-  }
+/**
+ * Returns the kana reading of `word` via the local kuromoji tokenizer.
+ * Tokens kuromoji doesn't recognize (e.g. names, slang) have no reading,
+ * so their surface form is used as-is for that token instead of failing
+ * the whole word.
+ */
+function getReading(word: string): string {
+  const tokens = tokenizer!.tokenize(word);
+  return normalizeKana(tokens.map((t) => t.reading ?? t.surface_form).join(""));
 }
 
 /**
@@ -441,9 +411,8 @@ async function handlePostShiritori(req: Request): Promise<Response> {
     return json(publicState({ errorCode: "EMPTY" }), 400);
   }
 
-  // 2. 読みを取得。Yahoo APIが使えない場合は表記そのものにフォールバックする
-  //    （フォールバック時は従来どおり表記の末尾・先頭で接続判定される）。
-  const nextReading = (await getReading(nextWord)) ?? nextWord;
+  // 2. 読みを取得（kuromojiによる形態素解析。外部APIには依存しない）
+  const nextReading = getReading(nextWord);
 
   // 3. 文字数チェック（表記の文字数ではなく、ひらがな読みが1文字の単語を禁止する。
   //    例えば「犬」は表記1文字だが読み「いぬ」は2文字なので通過する。
@@ -591,8 +560,8 @@ async function handlePostVocabPlayer(req: Request): Promise<Response> {
     return json({ errorCode: "VOCAB_NOT_REAL_WORD", errorMessage: "単語を入力してください。" }, 400);
   }
 
-  // 3. 接続判定（読みベース。API失敗時は表記そのものにフォールバック）
-  const nextReading = (await getReading(nextWord)) ?? nextWord;
+  // 3. 読みを取得（kuromojiによる形態素解析。外部APIには依存しない）
+  const nextReading = getReading(nextWord);
 
   // 3.5 文字数チェック（表記の文字数ではなく、ひらがな読みが1文字の単語を禁止する。
   //    例えば「犬」は表記1文字だが読み「いぬ」は2文字なので通過する。

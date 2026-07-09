@@ -34,9 +34,9 @@ https://jigjp-intern-shiritori-73rj3tx6nadk.rk200781.deno.net/
 - Wikipedia OpenSearch API を使い、実在しない単語を弾く
   （API が失敗した場合はゲーム進行を止めないよう、実在チェックをスキップして
   通過させる fail-open 方式にしている）
-- Yahoo! JAPAN テキスト解析API「ルビ振り(V2)」で入力単語の読みを取得し、
+- kuromoji（形態素解析ライブラリ）で入力単語の読みを取得し、
   読みベースで接続判定を行う（長音「ー」・カタカナ表記・漢字表記に対応）。
-  API が使えない場合は表記そのものでの接続判定にフォールバックする
+  辞書をバンドルしてサーバー内で完結させているため外部APIには依存しない
   （詳細は [`shiritori-deno/README.md`](./shiritori-deno/README.md) を参照）
 
 判定ロジックの詳細・既知の制限は GitHub Issues で管理している。
@@ -84,19 +84,18 @@ deno run -A --watch server.ts
 
 - Deno公式ドキュメント（[docs.deno.com](https://docs.deno.com) / [deno.land](https://deno.land)）
   — `Deno.serve` の使い方、`@std/http/file-server` の `serveDir` の使い方の確認
-- [ルビ振り(V2) - Yahoo!デベロッパーネットワーク](https://developer.yahoo.co.jp/webapi/jlp/furigana/v2/furigana.html)
-  — 読み取得APIのリクエスト/レスポンス仕様の確認
 
 ## AIの活用について
 
 - **どの部分に使ったか**: 実装手順書（フェーズ分け・ステップ分割）の作成、
   `server.ts` のAPI実装、しりとりの判定ロジック（接続判定・「ん」判定・既出判定の
   優先順位設計）、Wikipedia OpenSearch API との連携部分、フロントエンドの
-  画面切り替えJS、README のたたき台作成、Yahoo! JAPAN ルビ振りAPI(V2) を使った
-  読み取得・読みの正規化（長音「ー」処理）・読みベースの接続判定への置き換え、
-  ISSUES.md の内容の GitHub Issues への移行、語彙力診断モードの実装一式
-  （単語リスト `data/words.json` の生成、CPU対戦のサーバーAPI・スコア計算・
-  フロントエンドのタイマー/演出、実在チェックの精度改善）
+  画面切り替えJS、README のたたき台作成、読み取得・読みの正規化（長音「ー」処理）・
+  読みベースの接続判定への置き換え、ISSUES.md の内容の GitHub Issues への移行、
+  語彙力診断モードの実装一式（単語リスト `data/words.json` の生成、CPU対戦の
+  サーバーAPI・スコア計算・フロントエンドのタイマー/演出、実在チェックの精度改善）、
+  読み取得を Yahoo! JAPAN ルビ振りAPI(V2) から kuromoji（ローカル形態素解析）
+  への置き換え
 - **どう使ったか**: Claude Code と対話しながら実装方針・判定順序・未決事項を
   すり合わせ、Claude Code にコードを実装させた上で、動作確認（curl でのAPI検証、
   各終了条件の実機テスト）を行い、内容を自分で理解・確認した。
@@ -106,3 +105,10 @@ deno run -A --watch server.ts
   各終了条件（タイムアウト・既出・「ん」・CPU候補切れ）の実機確認に加え、
   「実在する単語なのに実在しないと判定される」という実プレイ中の不具合報告を受けて
   原因調査から対応方針の相談・実装までを Claude Code と行った。
+  さらに本番デプロイ後に「繋がっているはずなのに繋がっていないと言われる」不具合が
+  発生し、調査の結果、Yahoo! JAPANが2022年よりEEA（欧州経済領域）・イギリスからの
+  アクセスを遮断しており、デプロイ先サーバーがその地域からのアクセスと判定されて
+  ルビ振りAPIが403で弾かれていたことが判明した。これは自分たちでは制御できない
+  外部要因だったため、Claude Code と相談し、外部APIに依存しないkuromoji
+  （形態素解析ライブラリ、辞書をバンドルしローカルで読み取得）に置き換える方針で
+  実装した。
