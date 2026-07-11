@@ -17,6 +17,16 @@ const MODES = [
       "時間切れ・「ん」で終わる単語・同じ単語を使うと負け。\n" +
       "返答が速いほどスコアが高くなるよ！",
   },
+  {
+    id: "timeattack",
+    name: "タイムアタック",
+    description:
+      "1人で3分間、ひたすら単語をつなげ続けよう！\n" +
+      "時間切れになったら正常終了（そこまでのスコアが記録されるよ）。\n" +
+      "「ん」で終わる単語・同じ単語を使うとその時点でゲーム終了。\n" +
+      "実在しない単語はエラー表示だけで、そのまま続けられるよ。\n" +
+      "返答が速いほどスコアが高くなるよ！",
+  },
 ];
 
 const ERROR_MESSAGES = {
@@ -328,6 +338,180 @@ async function submitVocabWord(word, isTimeout) {
   await beginVocabTurn(() => Promise.resolve(data));
 }
 
+// ---- タイムアタック ----
+
+const TIMEATTACK_CONTINUE_ERROR_MESSAGES = {
+  TIMEATTACK_EMPTY: "単語を入力してください。",
+  TIMEATTACK_NOT_CONNECTED: "しりとりが繋がっていません。前の単語の最後の文字から始めてください。",
+  TIMEATTACK_NOT_REAL_WORD: "実在する単語として見つかりませんでした。別の単語を試してください。",
+  TIMEATTACK_TOO_SHORT: "読みがひらがな1文字の単語は使えません。ひらがなで2文字以上の単語を入力してください。",
+};
+
+const TIMEATTACK_END_MESSAGES = {
+  DUPLICATE: "すでに使われた単語でした。ゲーム終了です。",
+  N_ENDING: "「ん」で終わる単語でした。ゲーム終了です。",
+};
+
+const TIMEATTACK_DURATION_SECONDS = 180;
+const TIMEATTACK_WARNING_SECONDS = 30;
+
+let timeattackScore = 0;
+let timeattackWordCount = 0;
+let timeattackRemainingSeconds = TIMEATTACK_DURATION_SECONDS;
+let timeattackTimerHandle = null;
+let timeattackWordStartedAt = null;
+
+function timeattackTurnScore(elapsedSeconds) {
+  const timeBonus = Math.max(0, Math.floor((10 - elapsedSeconds) * 10));
+  return 100 + timeBonus;
+}
+
+function formatTimeAttackClock(totalSeconds) {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function disableTimeAttackInput(disabled) {
+  document.getElementById("timeattack-word-input").disabled = disabled;
+  document.querySelector('#timeattack-word-form button[type="submit"]').disabled = disabled;
+}
+
+function updateTimeAttackScoreDisplay() {
+  document.getElementById("timeattack-score").textContent = String(timeattackScore);
+  document.getElementById("timeattack-word-count").textContent = String(timeattackWordCount);
+}
+
+function addTimeAttackHistoryEntry(word, elapsedSeconds) {
+  const list = document.getElementById("timeattack-history-list");
+  const li = document.createElement("li");
+  li.textContent = elapsedSeconds != null ? `${word}（${elapsedSeconds}秒）` : word;
+  list.appendChild(li);
+}
+
+function stopTimeAttackTimer() {
+  if (timeattackTimerHandle !== null) {
+    clearInterval(timeattackTimerHandle);
+    timeattackTimerHandle = null;
+  }
+}
+
+function updateTimeAttackTimerDisplay() {
+  const timerEl = document.getElementById("timeattack-timer");
+  timerEl.textContent = formatTimeAttackClock(timeattackRemainingSeconds);
+  timerEl.classList.toggle("timer-warning", timeattackRemainingSeconds <= TIMEATTACK_WARNING_SECONDS);
+}
+
+function startTimeAttackTimer() {
+  stopTimeAttackTimer();
+  timeattackRemainingSeconds = TIMEATTACK_DURATION_SECONDS;
+  updateTimeAttackTimerDisplay();
+  timeattackTimerHandle = setInterval(() => {
+    timeattackRemainingSeconds -= 1;
+    updateTimeAttackTimerDisplay();
+    if (timeattackRemainingSeconds <= 0) {
+      stopTimeAttackTimer();
+      submitTimeAttackWord("", true);
+    }
+  }, 1000);
+}
+
+function showTimeAttackError(errorCode) {
+  const errorEl = document.getElementById("timeattack-error-message");
+  errorEl.textContent = TIMEATTACK_CONTINUE_ERROR_MESSAGES[errorCode] ?? "入力エラーです。";
+  errorEl.classList.remove("hidden");
+}
+
+function clearTimeAttackError() {
+  document.getElementById("timeattack-error-message").classList.add("hidden");
+}
+
+function showTimeAttackGameOver(data) {
+  stopTimeAttackTimer();
+  disableTimeAttackInput(true);
+
+  timeattackScore = data.score ?? timeattackScore;
+  timeattackWordCount = data.wordCount ?? timeattackWordCount;
+  updateTimeAttackScoreDisplay();
+
+  const banner = document.getElementById("timeattack-game-over-banner");
+  if (data.endReason === "TIME_UP") {
+    banner.textContent = `3分間走りきりました！お疲れ様でした！（スコア: ${timeattackScore} / 単語数: ${timeattackWordCount}）`;
+  } else {
+    const reasonMessage = TIMEATTACK_END_MESSAGES[data.endReason] ?? "ゲーム終了です。";
+    banner.textContent = `${reasonMessage}（スコア: ${timeattackScore} / 単語数: ${timeattackWordCount}）`;
+  }
+  banner.classList.remove("hidden");
+}
+
+function resetTimeAttackUi() {
+  timeattackScore = 0;
+  timeattackWordCount = 0;
+  timeattackRemainingSeconds = TIMEATTACK_DURATION_SECONDS;
+  stopTimeAttackTimer();
+  updateTimeAttackScoreDisplay();
+  updateTimeAttackTimerDisplay();
+  document.getElementById("timeattack-history-list").innerHTML = "";
+  document.getElementById("timeattack-current-word").textContent = "-";
+  document.getElementById("timeattack-game-over-banner").classList.add("hidden");
+  clearTimeAttackError();
+  disableTimeAttackInput(false);
+}
+
+async function startTimeAttackGame() {
+  resetTimeAttackUi();
+  const data = await fetchJson("/timeattack/start", { method: "POST" });
+  if (data.currentWord) {
+    document.getElementById("timeattack-current-word").textContent = data.currentWord;
+    addTimeAttackHistoryEntry(data.currentWord, null);
+  }
+  timeattackWordStartedAt = Date.now();
+  startTimeAttackTimer();
+  document.getElementById("timeattack-word-input").focus();
+}
+
+async function submitTimeAttackWord(word, isTimeout) {
+  const elapsedSeconds = timeattackWordStartedAt != null
+    ? Math.round((Date.now() - timeattackWordStartedAt) / 1000)
+    : 0;
+
+  disableTimeAttackInput(true);
+  clearTimeAttackError();
+
+  const data = await fetchJson("/timeattack/word", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ nextWord: word, elapsedSeconds, isTimeout }),
+  });
+
+  if (data.isGameOver) {
+    if (word && data.errorCode !== "TIMEATTACK_NOT_REAL_WORD") {
+      addTimeAttackHistoryEntry(word, isTimeout ? null : elapsedSeconds);
+    }
+    showTimeAttackGameOver(data);
+    return;
+  }
+
+  if (data.errorCode) {
+    showTimeAttackError(data.errorCode);
+    disableTimeAttackInput(false);
+    document.getElementById("timeattack-word-input").focus();
+    return;
+  }
+
+  // 通過。ローカルでもスコア・単語数を加算して即時表示に反映する
+  // （サーバーが返す score/wordCount と同じ計算式でありゲーム終了時に確定値へ揃う）。
+  timeattackScore += timeattackTurnScore(elapsedSeconds);
+  timeattackWordCount += 1;
+  updateTimeAttackScoreDisplay();
+  addTimeAttackHistoryEntry(word, elapsedSeconds);
+  document.getElementById("timeattack-current-word").textContent = word;
+
+  timeattackWordStartedAt = Date.now();
+  disableTimeAttackInput(false);
+  document.getElementById("timeattack-word-input").focus();
+}
+
 // モード選択画面の表示は、通信やイベント配線より先に必ず実行する。
 // 以降の処理が失敗しても、最初の画面が消えたままになることはない。
 renderModeList();
@@ -338,6 +522,9 @@ try {
     if (currentMode.id === "vocab") {
       showScreen("screen-vocab-game");
       await startVocabGame();
+    } else if (currentMode.id === "timeattack") {
+      showScreen("screen-timeattack-game");
+      await startTimeAttackGame();
     } else {
       await resetGame();
       showScreen("screen-game");
@@ -382,6 +569,24 @@ try {
 
   document.getElementById("vocab-reset-btn").addEventListener("click", async () => {
     await startVocabGame();
+  });
+
+  document.getElementById("timeattack-back-to-select-btn").addEventListener("click", () => {
+    stopTimeAttackTimer();
+    showScreen("screen-mode-select");
+  });
+
+  document.getElementById("timeattack-word-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = document.getElementById("timeattack-word-input");
+    const word = input.value.trim();
+    if (!word) return;
+    input.value = "";
+    await submitTimeAttackWord(word, false);
+  });
+
+  document.getElementById("timeattack-reset-btn").addEventListener("click", async () => {
+    await startTimeAttackGame();
   });
 } catch (err) {
   console.error("イベント登録に失敗しました:", err);

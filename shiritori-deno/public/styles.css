@@ -101,6 +101,12 @@ button:disabled {
   color: #c0392b;
 }
 
+.timeattack-timer {
+  font-size: 48px;
+  text-align: center;
+  margin: 16px 0;
+}
+
 .history-cpu {
   color: #555;
 }

@@ -544,6 +544,7 @@ async function handlePostVocabStart(): Promise<Response> {
 
 const VOCAB_BASE_SCORE = 100;
 
+/** Shared by CPU対戦 and タイムアタック: faster answers score higher. */
 function computeTurnScore(elapsedSeconds: number): number {
   const clamped = Math.max(0, elapsedSeconds);
   const timeBonus = Math.max(0, Math.floor((10 - clamped) * 10));
@@ -698,6 +699,160 @@ async function handlePostVocabReset(): Promise<Response> {
   return json(vocabPublicState());
 }
 
+// ---- タイムアタック ----
+
+interface TimeAttackState {
+  wordHistories: string[];
+  /** Kana reading for each entry in wordHistories, same index. */
+  readingHistories: string[];
+  isGameOver: boolean;
+  endReason: "TIME_UP" | "DUPLICATE" | "N_ENDING" | null;
+  score: number;
+  wordCount: number;
+}
+
+type TimeAttackErrorCode =
+  | "TIMEATTACK_EMPTY"
+  | "TIMEATTACK_NOT_CONNECTED"
+  | "TIMEATTACK_NOT_REAL_WORD"
+  | "TIMEATTACK_TOO_SHORT"
+  | "TIMEATTACK_ALREADY_USED"
+  | "TIMEATTACK_ENDS_WITH_N";
+
+interface TimeAttackWordRequest {
+  nextWord: string;
+  elapsedSeconds: number;
+  isTimeout: boolean;
+}
+
+function freshTimeAttackState(): TimeAttackState {
+  return {
+    wordHistories: [],
+    readingHistories: [],
+    isGameOver: false,
+    endReason: null,
+    score: 0,
+    wordCount: 0,
+  };
+}
+
+let timeAttackState: TimeAttackState = freshTimeAttackState();
+
+function timeAttackPublicState(extra: { errorCode?: TimeAttackErrorCode | null } = {}) {
+  return {
+    currentWord: timeAttackState.wordHistories.at(-1) ?? null,
+    wordHistories: timeAttackState.wordHistories,
+    isGameOver: timeAttackState.isGameOver,
+    endReason: timeAttackState.endReason,
+    errorCode: extra.errorCode ?? null,
+    score: timeAttackState.score,
+    wordCount: timeAttackState.wordCount,
+  };
+}
+
+async function handleGetTimeAttack(): Promise<Response> {
+  return json(timeAttackPublicState());
+}
+
+/**
+ * Starts a new round with a random word from the shared CPU対戦 vocabulary
+ * (data/words.json) as the opening word, so every round begins somewhere
+ * different instead of a blank input. If the list failed to load, the round
+ * just starts empty and the player's first word is unconstrained (unlike
+ * CPU対戦, タイムアタック has no CPU turn that strictly requires a word to
+ * display, so this degrades gracefully instead of ending the round).
+ */
+async function handlePostTimeAttackStart(): Promise<Response> {
+  timeAttackState = freshTimeAttackState();
+
+  const startWord = pickRandomWord();
+  if (startWord !== null) {
+    timeAttackState.wordHistories.push(startWord);
+    timeAttackState.readingHistories.push(startWord); // 語彙リストの単語はひらがな表記なので読み取得は不要
+  }
+
+  return json(timeAttackPublicState());
+}
+
+async function handlePostTimeAttackWord(req: Request): Promise<Response> {
+  if (timeAttackState.isGameOver) {
+    return json(timeAttackPublicState(), 409);
+  }
+
+  let body: Partial<TimeAttackWordRequest>;
+  try {
+    body = await req.json();
+  } catch {
+    return json(timeAttackPublicState({ errorCode: "TIMEATTACK_NOT_REAL_WORD" }), 400);
+  }
+
+  // 1. 時間切れ → 正常終了（3分間走りきったということなのでミス扱いにしない）
+  if (body.isTimeout === true) {
+    timeAttackState.isGameOver = true;
+    timeAttackState.endReason = "TIME_UP";
+    return json(timeAttackPublicState());
+  }
+
+  const nextWord = typeof body.nextWord === "string" ? body.nextWord.trim() : "";
+
+  // 2. 入力が空でないか
+  if (!nextWord) {
+    return json(timeAttackPublicState({ errorCode: "TIMEATTACK_EMPTY" }), 400);
+  }
+
+  // 3〜4. 読み取得・文字数チェック・接続判定（全モード共通のロジック）
+  const validation = validateWordReading(nextWord, timeAttackState.readingHistories.at(-1) ?? null);
+  if (!validation.ok) {
+    return json(
+      timeAttackPublicState({
+        errorCode: validation.errorCode === "TOO_SHORT" ? "TIMEATTACK_TOO_SHORT" : "TIMEATTACK_NOT_CONNECTED",
+      }),
+      400,
+    );
+  }
+  const { reading: nextReading, normalizedReading: normalizedNextReading } = validation;
+
+  // 5. 実在チェック（実在しない場合はエラー表示のみで続行し、ゲームは終了しない。
+  //    自前の単語データベースにあれば即通過。無ければ辞書(Jisho)とWikipediaの
+  //    両方で確認し、どちらも「存在しない」と判定した場合のみ却下する）
+  if (!isKnownVocabWord(nextWord) && !isKnownVocabWord(normalizedNextReading)) {
+    const exists = await checkWordExists(nextWord, normalizedNextReading);
+    if (exists === false) {
+      return json(timeAttackPublicState({ errorCode: "TIMEATTACK_NOT_REAL_WORD" }), 400);
+    }
+  }
+
+  // 6. 既出チェック → ゲーム終了（ミス扱い）
+  if (timeAttackState.wordHistories.includes(nextWord)) {
+    timeAttackState.isGameOver = true;
+    timeAttackState.endReason = "DUPLICATE";
+    return json(timeAttackPublicState({ errorCode: "TIMEATTACK_ALREADY_USED" }));
+  }
+
+  // 7. 「ん」チェック → ゲーム終了（ミス扱い）
+  if (endsWithN(nextReading)) {
+    timeAttackState.wordHistories.push(nextWord);
+    timeAttackState.readingHistories.push(nextReading);
+    timeAttackState.isGameOver = true;
+    timeAttackState.endReason = "N_ENDING";
+    return json(timeAttackPublicState({ errorCode: "TIMEATTACK_ENDS_WITH_N" }));
+  }
+
+  // 8. 通過 → 履歴追加・スコア加算（返答が速いほど高スコア）
+  timeAttackState.wordHistories.push(nextWord);
+  timeAttackState.readingHistories.push(nextReading);
+  const elapsedSeconds = typeof body.elapsedSeconds === "number" ? body.elapsedSeconds : 10;
+  timeAttackState.score += computeTurnScore(elapsedSeconds);
+  timeAttackState.wordCount += 1;
+
+  return json(timeAttackPublicState());
+}
+
+async function handlePostTimeAttackReset(): Promise<Response> {
+  timeAttackState = freshTimeAttackState();
+  return json(timeAttackPublicState());
+}
+
 Deno.serve((req: Request) => {
   const { pathname } = new URL(req.url);
 
@@ -721,6 +876,18 @@ Deno.serve((req: Request) => {
   }
   if (pathname === "/vocab/reset" && req.method === "POST") {
     return handlePostVocabReset();
+  }
+  if (pathname === "/timeattack" && req.method === "GET") {
+    return handleGetTimeAttack();
+  }
+  if (pathname === "/timeattack/start" && req.method === "POST") {
+    return handlePostTimeAttackStart();
+  }
+  if (pathname === "/timeattack/word" && req.method === "POST") {
+    return handlePostTimeAttackWord(req);
+  }
+  if (pathname === "/timeattack/reset" && req.method === "POST") {
+    return handlePostTimeAttackReset();
   }
 
   return serveDir(req, { fsRoot: "public" });

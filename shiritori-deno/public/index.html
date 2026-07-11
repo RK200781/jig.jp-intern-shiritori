@@ -77,6 +77,36 @@
   </div>
 </section>
 
+<section id="screen-timeattack-game" class="screen hidden">
+  <h2>タイムアタック</h2>
+
+  <p id="timeattack-timer" class="timer timeattack-timer">3:00</p>
+
+  <p id="timeattack-game-over-banner" class="banner hidden"></p>
+
+  <div class="vocab-status-row">
+    <p>スコア: <strong id="timeattack-score">0</strong></p>
+    <p>単語数: <strong id="timeattack-word-count">0</strong></p>
+  </div>
+
+  <p>直前の単語: <strong id="timeattack-current-word">-</strong></p>
+
+  <form id="timeattack-word-form">
+    <input id="timeattack-word-input" type="text" autocomplete="off" placeholder="次の単語を入力" />
+    <button type="submit">送信</button>
+  </form>
+
+  <p id="timeattack-error-message" class="error hidden"></p>
+
+  <h3>履歴</h3>
+  <ol id="timeattack-history-list" class="history-list"></ol>
+
+  <div class="button-row">
+    <button id="timeattack-reset-btn">リセット</button>
+    <button id="timeattack-back-to-select-btn" class="secondary">モード選択に戻る</button>
+  </div>
+</section>
+
 <script src="app.js"></script>
 
 </body>
