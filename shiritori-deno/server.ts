@@ -25,6 +25,28 @@ async function loadVocabWords(): Promise<void> {
 
 await loadVocabWords();
 
+/** Category word list for 縛りモード (食べ物・飲み物縛り), flat hiragana array. */
+let foodWords: string[] = [];
+
+/**
+ * Loads data/foods.json once at startup. On failure, logs the error and
+ * leaves foodWords empty so 縛りモード degrades gracefully (every word gets
+ * rejected as off-category) instead of crashing the server.
+ */
+async function loadFoodWords(): Promise<void> {
+  try {
+    const url = new URL("./data/foods.json", import.meta.url);
+    const text = await Deno.readTextFile(url);
+    foodWords = JSON.parse(text);
+    console.log(`[shibari] loaded ${foodWords.length} food/drink words from data/foods.json`);
+  } catch (err) {
+    console.error("[shibari] failed to load data/foods.json; 縛りモード will reject every word:", err);
+    foodWords = [];
+  }
+}
+
+await loadFoodWords();
+
 /**
  * Small (contracted) kana are normalized to their base form only when
  * comparing the boundary characters between two words/readings (e.g. after
@@ -57,18 +79,23 @@ function endsWithN(reading: string): boolean {
   return last === "ん" || last === "ン";
 }
 
-/** Katakana row -> vowel (あ段/い段/う段/え段/お段), used to resolve "ー". */
+/**
+ * Katakana row -> vowel (あ段/い段/う段/え段/お段), used to resolve "ー".
+ * Includes small kana (ぁぃぅぇぉ and the ゃゅょ youon glides): when "ー"
+ * directly follows one of these (e.g. "じゅーす", "ぱーてぃー"), the small
+ * kana - not the consonant before it - determines the mora's vowel.
+ */
 const KANA_VOWEL: Record<string, string> = {
   "あ": "あ", "か": "あ", "さ": "あ", "た": "あ", "な": "あ", "は": "あ", "ま": "あ", "や": "あ", "ら": "あ", "わ": "あ",
-  "が": "あ", "ざ": "あ", "だ": "あ", "ば": "あ", "ぱ": "あ",
+  "が": "あ", "ざ": "あ", "だ": "あ", "ば": "あ", "ぱ": "あ", "ぁ": "あ", "ゃ": "あ",
   "い": "い", "き": "い", "し": "い", "ち": "い", "に": "い", "ひ": "い", "み": "い", "り": "い",
-  "ぎ": "い", "じ": "い", "ぢ": "い", "び": "い", "ぴ": "い",
+  "ぎ": "い", "じ": "い", "ぢ": "い", "び": "い", "ぴ": "い", "ぃ": "い",
   "う": "う", "く": "う", "す": "う", "つ": "う", "ぬ": "う", "ふ": "う", "む": "う", "ゆ": "う", "る": "う",
-  "ぐ": "う", "ず": "う", "づ": "う", "ぶ": "う", "ぷ": "う",
+  "ぐ": "う", "ず": "う", "づ": "う", "ぶ": "う", "ぷ": "う", "ぅ": "う", "ゅ": "う",
   "え": "え", "け": "え", "せ": "え", "て": "え", "ね": "え", "へ": "え", "め": "え", "れ": "え",
-  "げ": "え", "ぜ": "え", "で": "え", "べ": "え", "ぺ": "え",
+  "げ": "え", "ぜ": "え", "で": "え", "べ": "え", "ぺ": "え", "ぇ": "え",
   "お": "お", "こ": "お", "そ": "お", "と": "お", "の": "お", "ほ": "お", "も": "お", "よ": "お", "ろ": "お", "を": "お",
-  "ご": "お", "ぞ": "お", "ど": "お", "ぼ": "お", "ぽ": "お",
+  "ご": "お", "ぞ": "お", "ど": "お", "ぼ": "お", "ぽ": "お", "ぉ": "お", "ょ": "お",
 };
 
 function katakanaToHiragana(str: string): string {
@@ -378,6 +405,17 @@ function isKnownVocabWord(word: string): boolean {
 }
 
 /**
+ * True when `word` is a member of the 縛りモード category list
+ * (data/foods.json). Also used to skip the Wikipedia/Jisho existence check
+ * for the same reason isKnownVocabWord does for CPU対戦: common hiragana
+ * nouns often have no hiragana-titled Wikipedia article, so a curated list
+ * hit is treated as sufficient proof the word is real.
+ */
+function isFoodWord(word: string): boolean {
+  return foodWords.includes(word);
+}
+
+/**
  * Picks a random CPU word starting with `lastChar` that hasn't been used yet.
  * Falls back to the 清音 (plain) equivalent key when `lastChar` is a voiced
  * kana with no remaining candidates (see DAKUTEN_TO_SEION). Returns null only
@@ -490,6 +528,109 @@ async function handlePostReset(): Promise<Response> {
   state.isGameOver = false;
   state.endReason = null;
   return json(publicState());
+}
+
+// ---- 縛りモード（食べ物・飲み物縛り） ----
+
+interface ShibariState {
+  wordHistories: string[];
+  /** Kana reading for each entry in wordHistories, same index. */
+  readingHistories: string[];
+  isGameOver: boolean;
+  endReason: EndReason;
+}
+
+const shibariState: ShibariState = {
+  wordHistories: [],
+  readingHistories: [],
+  isGameOver: false,
+  endReason: null,
+};
+
+function shibariPublicState(extra: { errorCode?: string } = {}) {
+  return {
+    currentWord: shibariState.wordHistories.at(-1) ?? null,
+    history: shibariState.wordHistories,
+    isGameOver: shibariState.isGameOver,
+    endReason: shibariState.endReason,
+    errorCode: extra.errorCode ?? null,
+  };
+}
+
+async function handleGetShibari(): Promise<Response> {
+  return json(shibariPublicState());
+}
+
+async function handlePostShibari(req: Request): Promise<Response> {
+  if (shibariState.isGameOver) {
+    return json(shibariPublicState({ errorCode: "GAME_OVER" }), 409);
+  }
+
+  let body: { nextWord?: unknown };
+  try {
+    body = await req.json();
+  } catch {
+    return json(shibariPublicState({ errorCode: "INVALID_BODY" }), 400);
+  }
+
+  const nextWord = typeof body.nextWord === "string" ? body.nextWord.trim() : "";
+
+  // 1. 入力が空でないか
+  if (!nextWord) {
+    return json(shibariPublicState({ errorCode: "EMPTY" }), 400);
+  }
+
+  // 2〜3. 読み取得・文字数チェック・接続判定（全モード共通のロジック）
+  const validation = validateWordReading(nextWord, shibariState.readingHistories.at(-1) ?? null);
+  if (!validation.ok) {
+    return json(shibariPublicState({ errorCode: validation.errorCode }), 400);
+  }
+  const { reading: nextReading, normalizedReading: normalizedNextReading } = validation;
+
+  // 4. カテゴリ判定（食べ物・飲み物のみ。違反した場合はエラー表示のみで続行し、
+  //    ゲームは終了しない）
+  if (!isFoodWord(nextWord) && !isFoodWord(normalizedNextReading)) {
+    return json(shibariPublicState({ errorCode: "NOT_FOOD" }), 400);
+  }
+
+  // 5. 実在チェック（通常モードと同じロジックをそのまま利用。辞書(Jisho)と
+  //    Wikipediaの両方で確認し、どちらも「存在しない」と判定した場合のみ却下する。
+  //    API失敗時はfail-openで通過。カテゴリ判定を通った時点で foods.json 収録語
+  //    であることは確定しているため、実運用でここが却下に至ることはまずないが、
+  //    通常モードと同じ判定経路を通すことを優先している）
+  const exists = await checkWordExists(nextWord, normalizedNextReading);
+  if (exists === false) {
+    return json(shibariPublicState({ errorCode: "NOT_FOUND" }), 400);
+  }
+
+  // 6. 既出チェック → 終了（表記ベース。同じ読みでも別表記なら既出扱いしない）
+  if (shibariState.wordHistories.includes(nextWord)) {
+    shibariState.isGameOver = true;
+    shibariState.endReason = "DUPLICATE";
+    return json(shibariPublicState({ errorCode: "DUPLICATE" }));
+  }
+
+  // 7. 「ん」チェック → 終了（読みベース。表記が漢字でも読みが「ん」で終われば終了）
+  if (endsWithN(nextReading)) {
+    shibariState.wordHistories.push(nextWord);
+    shibariState.readingHistories.push(nextReading);
+    shibariState.isGameOver = true;
+    shibariState.endReason = "N_ENDING";
+    return json(shibariPublicState({ errorCode: "N_ENDING" }));
+  }
+
+  // 8. 通過で履歴追加・更新
+  shibariState.wordHistories.push(nextWord);
+  shibariState.readingHistories.push(nextReading);
+  return json(shibariPublicState());
+}
+
+async function handlePostShibariReset(): Promise<Response> {
+  shibariState.wordHistories = [];
+  shibariState.readingHistories = [];
+  shibariState.isGameOver = false;
+  shibariState.endReason = null;
+  return json(shibariPublicState());
 }
 
 // ---- CPU対戦 エンドポイント ----
@@ -864,6 +1005,15 @@ Deno.serve((req: Request) => {
   }
   if (pathname === "/reset" && req.method === "POST") {
     return handlePostReset();
+  }
+  if (pathname === "/shibari" && req.method === "GET") {
+    return handleGetShibari();
+  }
+  if (pathname === "/shibari" && req.method === "POST") {
+    return handlePostShibari(req);
+  }
+  if (pathname === "/shibari/reset" && req.method === "POST") {
+    return handlePostShibariReset();
   }
   if (pathname === "/vocab" && req.method === "GET") {
     return handleGetVocab();

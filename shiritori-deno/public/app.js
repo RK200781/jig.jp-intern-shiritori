@@ -33,6 +33,16 @@ const MODES = [
       "「血」は読みが「ち」で1文字なのでNG）。\n" +
       "返答が速いほどスコアが高くなるよ！",
   },
+  {
+    id: "shibari",
+    name: "食べ物縛り",
+    description:
+      "通常モードのしりとりに「食べ物・飲み物の単語しか使えない」縛りを加えたモードです。" +
+      "食べ物・飲み物以外の単語を入力するとエラー表示になりますが、ゲームは終了せず続行できます。" +
+      "それ以外のルール（接続判定・「ん」で終了・既出で終了・実在チェック）は通常モードと同じです。" +
+      "読みがひらがなで1文字だけの単語は使えません（「犬」は読みが「いぬ」で2文字なのでOK、" +
+      "「血」は読みが「ち」で1文字なのでNGです）。",
+  },
 ];
 
 const ERROR_MESSAGES = {
@@ -40,6 +50,7 @@ const ERROR_MESSAGES = {
   TOO_SHORT: "読みがひらがな1文字の単語は使えません。ひらがなで2文字以上の単語を入力してください。",
   NOT_CONNECTED: "しりとりが繋がっていません。前の単語の最後の文字から始めてください。",
   NOT_FOUND: "実在する単語として見つかりませんでした。別の単語を試してください。",
+  NOT_FOOD: "食べ物・飲み物の単語ではありません。別の単語を試してください。",
   DUPLICATE: "すでに使われた単語です。ゲーム終了です。",
   N_ENDING: "「ん」で終わる単語です。ゲーム終了です。",
   GAME_OVER: "ゲームはすでに終了しています。リセットしてください。",
@@ -137,6 +148,63 @@ async function submitWord(word) {
 async function resetGame() {
   const data = await fetchJson("/reset", { method: "POST" });
   renderState(data);
+}
+
+// ---- 食べ物縛り ----
+// 通常モードとルール・レスポンス形状が同じため、renderState/submitWord/resetGame と
+// 同じ構造の関数を shibari-* 要素向けに用意している。
+
+function renderShibariState(data) {
+  document.getElementById("shibari-current-word").textContent = data.currentWord ?? "（最初の単語を入力してください）";
+
+  const historyList = document.getElementById("shibari-history-list");
+  historyList.innerHTML = "";
+  for (const word of data.history) {
+    const li = document.createElement("li");
+    li.textContent = word;
+    historyList.appendChild(li);
+  }
+
+  const errorEl = document.getElementById("shibari-error-message");
+  if (data.errorCode && data.errorCode !== "DUPLICATE" && data.errorCode !== "N_ENDING") {
+    errorEl.textContent = ERROR_MESSAGES[data.errorCode] ?? "入力エラーです。";
+    errorEl.classList.remove("hidden");
+  } else {
+    errorEl.classList.add("hidden");
+  }
+
+  const banner = document.getElementById("shibari-game-over-banner");
+  const input = document.getElementById("shibari-word-input");
+  const submitBtn = document.querySelector('#shibari-word-form button[type="submit"]');
+  if (data.isGameOver) {
+    banner.textContent =
+      data.endReason === "N_ENDING"
+        ? ERROR_MESSAGES.N_ENDING
+        : data.endReason === "DUPLICATE"
+        ? ERROR_MESSAGES.DUPLICATE
+        : "ゲーム終了です。";
+    banner.classList.remove("hidden");
+    input.disabled = true;
+    submitBtn.disabled = true;
+  } else {
+    banner.classList.add("hidden");
+    input.disabled = false;
+    submitBtn.disabled = false;
+  }
+}
+
+async function resetShibariGame() {
+  const data = await fetchJson("/shibari/reset", { method: "POST" });
+  renderShibariState(data);
+}
+
+async function submitShibariWord(word) {
+  const data = await fetchJson("/shibari", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ nextWord: word }),
+  });
+  renderShibariState(data);
 }
 
 // ---- CPU対戦 ----
@@ -531,6 +599,9 @@ try {
     } else if (currentMode.id === "timeattack") {
       showScreen("screen-timeattack-game");
       await startTimeAttackGame();
+    } else if (currentMode.id === "shibari") {
+      await resetShibariGame();
+      showScreen("screen-shibari-game");
     } else {
       await resetGame();
       showScreen("screen-game");
@@ -593,6 +664,24 @@ try {
 
   document.getElementById("timeattack-reset-btn").addEventListener("click", async () => {
     await startTimeAttackGame();
+  });
+
+  document.getElementById("shibari-back-to-select-btn").addEventListener("click", () => {
+    showScreen("screen-mode-select");
+  });
+
+  document.getElementById("shibari-word-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = document.getElementById("shibari-word-input");
+    const word = input.value.trim();
+    if (!word) return;
+    await submitShibariWord(word);
+    input.value = "";
+    input.focus();
+  });
+
+  document.getElementById("shibari-reset-btn").addEventListener("click", async () => {
+    await resetShibariGame();
   });
 } catch (err) {
   console.error("イベント登録に失敗しました:", err);

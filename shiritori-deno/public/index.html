@@ -107,6 +107,29 @@
   </div>
 </section>
 
+<section id="screen-shibari-game" class="screen hidden">
+  <h2>食べ物縛り</h2>
+
+  <p id="shibari-game-over-banner" class="banner hidden"></p>
+
+  <p>直前の単語: <strong id="shibari-current-word">-</strong></p>
+
+  <form id="shibari-word-form">
+    <input id="shibari-word-input" type="text" autocomplete="off" placeholder="次の単語を入力（食べ物・飲み物限定）" />
+    <button type="submit">送信</button>
+  </form>
+
+  <p id="shibari-error-message" class="error hidden"></p>
+
+  <h3>履歴</h3>
+  <ol id="shibari-history-list" class="history-list"></ol>
+
+  <div class="button-row">
+    <button id="shibari-reset-btn">リセット</button>
+    <button id="shibari-back-to-select-btn" class="secondary">モード選択に戻る</button>
+  </div>
+</section>
+
 <script src="app.js"></script>
 
 </body>
