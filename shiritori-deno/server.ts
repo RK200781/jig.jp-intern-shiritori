@@ -2,7 +2,7 @@ import { serveDir } from "@std/http/file-server";
 /// <reference types="@types/kuromoji" />
 import kuromoji from "kuromoji";
 
-/** Word list for 語彙力診断モード, keyed by leading hiragana character. */
+/** Word list for CPU対戦, keyed by leading hiragana character. */
 let vocabWords: Record<string, string[]> = {};
 
 /**
@@ -18,7 +18,7 @@ async function loadVocabWords(): Promise<void> {
     const total = Object.values(vocabWords).reduce((sum, words) => sum + words.length, 0);
     console.log(`[vocab] loaded ${total} words across ${Object.keys(vocabWords).length} keys from data/words.json`);
   } catch (err) {
-    console.error("[vocab] failed to load data/words.json; 語彙力診断モード will have no CPU candidates:", err);
+    console.error("[vocab] failed to load data/words.json; CPU対戦 will have no CPU candidates:", err);
     vocabWords = {};
   }
 }
@@ -289,7 +289,7 @@ function currentReading(): string | null {
   return state.readingHistories.at(-1) ?? null;
 }
 
-// ---- 語彙力診断モード ----
+// ---- CPU対戦 ----
 
 interface VocabGameState {
   wordHistories: string[];
@@ -492,7 +492,7 @@ async function handlePostReset(): Promise<Response> {
   return json(publicState());
 }
 
-// ---- 語彙力診断モード エンドポイント ----
+// ---- CPU対戦 エンドポイント ----
 
 function vocabPublicState(extra: { errorCode?: string } = {}) {
   return {

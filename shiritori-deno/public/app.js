@@ -10,7 +10,7 @@ const MODES = [
   },
   {
     id: "vocab",
-    name: "語彙力診断モード",
+    name: "CPU対戦",
     description:
       "CPUと対戦して語彙力を診断しよう！\n" +
       "CPUが出した単語に10秒以内に続く単語を答えてね。\n" +
@@ -123,7 +123,7 @@ async function resetGame() {
   renderState(data);
 }
 
-// ---- 語彙力診断モード ----
+// ---- CPU対戦 ----
 
 const VOCAB_CONTINUE_ERROR_MESSAGES = {
   VOCAB_NOT_CONNECTED: "しりとりが繋がっていません。前の単語の最後の文字から始めてください。",
