@@ -45,6 +45,13 @@ const MODES = [
   },
 ];
 
+const MODE_ICONS = {
+  normal: "🔤",
+  vocab: "🤖",
+  timeattack: "⏱️",
+  shibari: "🍙",
+};
+
 const ERROR_MESSAGES = {
   EMPTY: "単語を入力してください。",
   TOO_SHORT: "読みがひらがな1文字の単語は使えません。ひらがなで2文字以上の単語を入力してください。",
@@ -69,7 +76,18 @@ function renderModeList() {
   container.innerHTML = "";
   for (const mode of MODES) {
     const btn = document.createElement("button");
-    btn.textContent = mode.name;
+    btn.className = "mode-card";
+    btn.type = "button";
+
+    const icon = document.createElement("span");
+    icon.className = "mode-card-icon";
+    icon.textContent = MODE_ICONS[mode.id] ?? "🎮";
+
+    const name = document.createElement("span");
+    name.className = "mode-card-name";
+    name.textContent = mode.name;
+
+    btn.append(icon, name);
     btn.addEventListener("click", () => selectMode(mode));
     container.appendChild(btn);
   }
@@ -77,7 +95,7 @@ function renderModeList() {
 
 function selectMode(mode) {
   currentMode = mode;
-  document.getElementById("mode-title").textContent = mode.name;
+  document.getElementById("mode-title").textContent = `${MODE_ICONS[mode.id] ?? ""} ${mode.name}`;
   document.getElementById("mode-description").textContent = mode.description;
   showScreen("screen-mode-description");
 }
@@ -121,7 +139,8 @@ function renderState(data) {
         : data.endReason === "DUPLICATE"
         ? ERROR_MESSAGES.DUPLICATE
         : "ゲーム終了です。";
-    banner.classList.remove("hidden");
+    banner.classList.remove("hidden", "banner-success");
+    banner.classList.add("banner-danger");
     input.disabled = true;
     submitBtn.disabled = true;
   } else {
@@ -183,7 +202,8 @@ function renderShibariState(data) {
         : data.endReason === "DUPLICATE"
         ? ERROR_MESSAGES.DUPLICATE
         : "ゲーム終了です。";
-    banner.classList.remove("hidden");
+    banner.classList.remove("hidden", "banner-success");
+    banner.classList.add("banner-danger");
     input.disabled = true;
     submitBtn.disabled = true;
   } else {
@@ -320,10 +340,13 @@ function showVocabGameOver(data) {
   updateVocabScoreDisplay();
 
   const banner = document.getElementById("vocab-game-over-banner");
+  banner.classList.remove("banner-success", "banner-danger");
   if (data.isCpuLose) {
-    banner.textContent = "CPUの単語が尽きた！あなたの勝利！";
+    banner.textContent = "🎉 CPUの単語が尽きた！あなたの勝利！";
+    banner.classList.add("banner-success");
   } else {
     banner.textContent = VOCAB_END_MESSAGES[data.errorCode] ?? "ゲーム終了です。";
+    banner.classList.add("banner-danger");
   }
   banner.classList.remove("hidden");
 }
@@ -509,11 +532,14 @@ function showTimeAttackGameOver(data) {
   updateTimeAttackScoreDisplay();
 
   const banner = document.getElementById("timeattack-game-over-banner");
+  banner.classList.remove("banner-success", "banner-danger");
   if (data.endReason === "TIME_UP") {
-    banner.textContent = `3分間走りきりました！お疲れ様でした！（スコア: ${timeattackScore} / 単語数: ${timeattackWordCount}）`;
+    banner.textContent = `🎉 3分間走りきりました！お疲れ様でした！（スコア: ${timeattackScore} / 単語数: ${timeattackWordCount}）`;
+    banner.classList.add("banner-success");
   } else {
     const reasonMessage = TIMEATTACK_END_MESSAGES[data.endReason] ?? "ゲーム終了です。";
     banner.textContent = `${reasonMessage}（スコア: ${timeattackScore} / 単語数: ${timeattackWordCount}）`;
+    banner.classList.add("banner-danger");
   }
   banner.classList.remove("hidden");
 }

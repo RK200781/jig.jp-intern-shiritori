@@ -5,130 +5,137 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="color-scheme" content="light" />
 <title>しりとりアプリ</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8D%A1%3C/text%3E%3C/svg%3E" />
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
 
-<section id="screen-mode-select" class="screen">
-  <h1>しりとりアプリ</h1>
-  <p>モードを選んでください。</p>
+<div class="app-shell">
+
+<section id="screen-mode-select" class="screen card">
+  <header class="app-header">
+    <h1>🍡 しりとりアプリ</h1>
+    <p class="app-subtitle">遊びたいモードを選んでください</p>
+  </header>
   <div id="mode-list" class="mode-list"></div>
 </section>
 
-<section id="screen-mode-description" class="screen hidden">
-  <h2 id="mode-title"></h2>
-  <p id="mode-description"></p>
+<section id="screen-mode-description" class="screen card hidden">
+  <h2 id="mode-title" class="mode-title"></h2>
+  <p id="mode-description" class="mode-description"></p>
   <div class="button-row">
     <button id="start-game-btn">ゲームスタート</button>
     <button id="back-to-select-btn" class="secondary">モード選択に戻る</button>
   </div>
 </section>
 
-<section id="screen-game" class="screen hidden">
-  <h2>しりとり</h2>
+<section id="screen-game" class="screen card hidden">
+  <h2 class="game-title"><span class="game-title-icon">🔤</span>通常モード</h2>
 
   <p id="game-over-banner" class="banner hidden"></p>
 
-  <p>直前の単語: <strong id="current-word">-</strong></p>
+  <p class="current-word-row">直前の単語 <span id="current-word" class="current-word-chip">-</span></p>
 
-  <form id="word-form">
+  <form id="word-form" class="word-form">
     <input id="word-input" type="text" autocomplete="off" placeholder="次の単語を入力" />
     <button type="submit">送信</button>
   </form>
 
   <p id="error-message" class="error hidden"></p>
 
-  <h3>履歴</h3>
+  <h3 class="history-title">履歴</h3>
   <ol id="history-list" class="history-list"></ol>
 
   <div class="button-row">
-    <button id="reset-btn">リセット</button>
+    <button id="reset-btn" class="secondary">リセット</button>
     <button id="back-to-select-from-game-btn" class="secondary">モード選択に戻る</button>
   </div>
 </section>
 
-<section id="screen-vocab-game" class="screen hidden">
-  <h2>CPU対戦</h2>
+<section id="screen-vocab-game" class="screen card hidden">
+  <h2 class="game-title"><span class="game-title-icon">🤖</span>CPU対戦</h2>
 
   <p id="vocab-game-over-banner" class="banner hidden"></p>
 
-  <div class="vocab-status-row">
-    <p>スコア: <strong id="vocab-score">0</strong></p>
-    <p>ターン数: <strong id="vocab-turn-count">0</strong></p>
+  <div class="stat-row">
+    <span class="stat-chip">スコア <strong id="vocab-score">0</strong></span>
+    <span class="stat-chip">ターン数 <strong id="vocab-turn-count">0</strong></span>
   </div>
 
-  <p>CPUの単語: <strong id="vocab-cpu-word">-</strong></p>
+  <p class="current-word-row">CPUの単語 <span id="vocab-cpu-word" class="current-word-chip">-</span></p>
   <p id="vocab-thinking" class="thinking hidden">CPUが考えています...</p>
   <p id="vocab-timer" class="timer hidden"><span id="vocab-timer-seconds">10</span> 秒</p>
 
-  <form id="vocab-word-form">
+  <form id="vocab-word-form" class="word-form">
     <input id="vocab-word-input" type="text" autocomplete="off" placeholder="次の単語を入力" disabled />
     <button type="submit" disabled>送信</button>
   </form>
 
   <p id="vocab-error-message" class="error hidden"></p>
 
-  <h3>履歴</h3>
+  <h3 class="history-title">履歴</h3>
   <ol id="vocab-history-list" class="history-list"></ol>
 
   <div class="button-row">
-    <button id="vocab-reset-btn">リセット</button>
+    <button id="vocab-reset-btn" class="secondary">リセット</button>
     <button id="vocab-back-to-select-btn" class="secondary">モード選択に戻る</button>
   </div>
 </section>
 
-<section id="screen-timeattack-game" class="screen hidden">
-  <h2>タイムアタック</h2>
+<section id="screen-timeattack-game" class="screen card hidden">
+  <h2 class="game-title"><span class="game-title-icon">⏱️</span>タイムアタック</h2>
 
   <p id="timeattack-timer" class="timer timeattack-timer">3:00</p>
 
   <p id="timeattack-game-over-banner" class="banner hidden"></p>
 
-  <div class="vocab-status-row">
-    <p>スコア: <strong id="timeattack-score">0</strong></p>
-    <p>単語数: <strong id="timeattack-word-count">0</strong></p>
+  <div class="stat-row">
+    <span class="stat-chip">スコア <strong id="timeattack-score">0</strong></span>
+    <span class="stat-chip">単語数 <strong id="timeattack-word-count">0</strong></span>
   </div>
 
-  <p>直前の単語: <strong id="timeattack-current-word">-</strong></p>
+  <p class="current-word-row">直前の単語 <span id="timeattack-current-word" class="current-word-chip">-</span></p>
 
-  <form id="timeattack-word-form">
+  <form id="timeattack-word-form" class="word-form">
     <input id="timeattack-word-input" type="text" autocomplete="off" placeholder="次の単語を入力" />
     <button type="submit">送信</button>
   </form>
 
   <p id="timeattack-error-message" class="error hidden"></p>
 
-  <h3>履歴</h3>
+  <h3 class="history-title">履歴</h3>
   <ol id="timeattack-history-list" class="history-list"></ol>
 
   <div class="button-row">
-    <button id="timeattack-reset-btn">リセット</button>
+    <button id="timeattack-reset-btn" class="secondary">リセット</button>
     <button id="timeattack-back-to-select-btn" class="secondary">モード選択に戻る</button>
   </div>
 </section>
 
-<section id="screen-shibari-game" class="screen hidden">
-  <h2>食べ物縛り</h2>
+<section id="screen-shibari-game" class="screen card hidden">
+  <h2 class="game-title"><span class="game-title-icon">🍙</span>食べ物縛り</h2>
 
   <p id="shibari-game-over-banner" class="banner hidden"></p>
 
-  <p>直前の単語: <strong id="shibari-current-word">-</strong></p>
+  <p class="current-word-row">直前の単語 <span id="shibari-current-word" class="current-word-chip">-</span></p>
 
-  <form id="shibari-word-form">
+  <form id="shibari-word-form" class="word-form">
     <input id="shibari-word-input" type="text" autocomplete="off" placeholder="次の単語を入力（食べ物・飲み物限定）" />
     <button type="submit">送信</button>
   </form>
 
   <p id="shibari-error-message" class="error hidden"></p>
 
-  <h3>履歴</h3>
+  <h3 class="history-title">履歴</h3>
   <ol id="shibari-history-list" class="history-list"></ol>
 
   <div class="button-row">
-    <button id="shibari-reset-btn">リセット</button>
+    <button id="shibari-reset-btn" class="secondary">リセット</button>
     <button id="shibari-back-to-select-btn" class="secondary">モード選択に戻る</button>
   </div>
 </section>
+
+</div>
 
 <script src="app.js"></script>
 
