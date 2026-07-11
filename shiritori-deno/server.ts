@@ -646,6 +646,150 @@ async function handlePostShibariReset(): Promise<Response> {
   return json(shibariPublicState());
 }
 
+// ---- しりとり×暗記モード ----
+
+interface MemoryState {
+  wordHistories: string[];
+  /** Kana reading for each entry in wordHistories, same index. */
+  readingHistories: string[];
+  isGameOver: boolean;
+  endReason: EndReason;
+}
+
+const memoryState: MemoryState = {
+  wordHistories: [],
+  readingHistories: [],
+  isGameOver: false,
+  endReason: null,
+};
+
+type MemoryErrorCode =
+  | "MEMORY_EMPTY"
+  | "MEMORY_COUNT_MISMATCH"
+  | "MEMORY_SEQUENCE_MISMATCH"
+  | "MEMORY_TOO_SHORT"
+  | "MEMORY_NOT_CONNECTED"
+  | "MEMORY_NOT_FOUND"
+  | "MEMORY_DUPLICATE"
+  | "MEMORY_N_ENDING"
+  | "MEMORY_GAME_OVER"
+  | "MEMORY_INVALID_BODY";
+
+/**
+ * Splits the player's full-chain input into individual words. Accepts both
+ * half-width and full-width spaces as separators since either is a natural
+ * way to type a sequence of Japanese words, and collapses runs of them so
+ * accidental double spaces don't produce empty entries.
+ */
+function splitMemoryInput(input: string): string[] {
+  return input.split(/[\s　]+/).filter((w) => w.length > 0);
+}
+
+/**
+ * Public state deliberately omits the word list while the round is still
+ * in progress - only `wordCount` (a bare number, not the words themselves)
+ * is exposed as a hint, matching this mode's memorize-it-yourself premise.
+ * The full history is only ever included once the round ends.
+ */
+function memoryPublicState(extra: { errorCode?: MemoryErrorCode | null } = {}) {
+  return {
+    wordCount: memoryState.wordHistories.length,
+    isGameOver: memoryState.isGameOver,
+    endReason: memoryState.endReason,
+    errorCode: extra.errorCode ?? null,
+    history: memoryState.isGameOver ? memoryState.wordHistories : null,
+  };
+}
+
+async function handleGetMemory(): Promise<Response> {
+  return json(memoryPublicState());
+}
+
+async function handlePostMemory(req: Request): Promise<Response> {
+  if (memoryState.isGameOver) {
+    return json(memoryPublicState({ errorCode: "MEMORY_GAME_OVER" }), 409);
+  }
+
+  let body: { input?: unknown };
+  try {
+    body = await req.json();
+  } catch {
+    return json(memoryPublicState({ errorCode: "MEMORY_INVALID_BODY" }), 400);
+  }
+
+  const rawInput = typeof body.input === "string" ? body.input : "";
+
+  // 1. 入力が空でないか
+  if (!rawInput.trim()) {
+    return json(memoryPublicState({ errorCode: "MEMORY_EMPTY" }), 400);
+  }
+
+  const words = splitMemoryInput(rawInput);
+
+  // 2. 単語数チェック（これまでの履歴 + 新しい単語1つ、ちょうどその数だけ
+  //    入力されているか。抜けている・多すぎるのどちらもここで弾く）
+  if (words.length !== memoryState.wordHistories.length + 1) {
+    return json(memoryPublicState({ errorCode: "MEMORY_COUNT_MISMATCH" }), 400);
+  }
+
+  // 3. これまでの履歴と、新しい単語より前の部分が完全に一致しているか
+  //    （順番の間違い・別表記への差し替えを弾く）
+  const previousWords = words.slice(0, -1);
+  const sequenceMatches = previousWords.every((w, i) => w === memoryState.wordHistories[i]);
+  if (!sequenceMatches) {
+    return json(memoryPublicState({ errorCode: "MEMORY_SEQUENCE_MISMATCH" }), 400);
+  }
+
+  const nextWord = words[words.length - 1];
+
+  // 4〜5. 読み取得・文字数チェック・接続判定（全モード共通のロジック）
+  const validation = validateWordReading(nextWord, memoryState.readingHistories.at(-1) ?? null);
+  if (!validation.ok) {
+    return json(
+      memoryPublicState({
+        errorCode: validation.errorCode === "TOO_SHORT" ? "MEMORY_TOO_SHORT" : "MEMORY_NOT_CONNECTED",
+      }),
+      400,
+    );
+  }
+  const { reading: nextReading, normalizedReading: normalizedNextReading } = validation;
+
+  // 6. 実在チェック（通常モードと同じロジックをそのまま利用）
+  const exists = await checkWordExists(nextWord, normalizedNextReading);
+  if (exists === false) {
+    return json(memoryPublicState({ errorCode: "MEMORY_NOT_FOUND" }), 400);
+  }
+
+  // 7. 既出チェック → 終了
+  if (memoryState.wordHistories.includes(nextWord)) {
+    memoryState.isGameOver = true;
+    memoryState.endReason = "DUPLICATE";
+    return json(memoryPublicState({ errorCode: "MEMORY_DUPLICATE" }));
+  }
+
+  // 8. 「ん」チェック → 終了
+  if (endsWithN(nextReading)) {
+    memoryState.wordHistories.push(nextWord);
+    memoryState.readingHistories.push(nextReading);
+    memoryState.isGameOver = true;
+    memoryState.endReason = "N_ENDING";
+    return json(memoryPublicState({ errorCode: "MEMORY_N_ENDING" }));
+  }
+
+  // 9. 通過で履歴追加・更新
+  memoryState.wordHistories.push(nextWord);
+  memoryState.readingHistories.push(nextReading);
+  return json(memoryPublicState());
+}
+
+async function handlePostMemoryReset(): Promise<Response> {
+  memoryState.wordHistories = [];
+  memoryState.readingHistories = [];
+  memoryState.isGameOver = false;
+  memoryState.endReason = null;
+  return json(memoryPublicState());
+}
+
 // ---- CPU対戦 エンドポイント ----
 
 function vocabPublicState(extra: { errorCode?: string } = {}) {
@@ -1027,6 +1171,15 @@ Deno.serve((req: Request) => {
   }
   if (pathname === "/shibari/reset" && req.method === "POST") {
     return handlePostShibariReset();
+  }
+  if (pathname === "/memory" && req.method === "GET") {
+    return handleGetMemory();
+  }
+  if (pathname === "/memory" && req.method === "POST") {
+    return handlePostMemory(req);
+  }
+  if (pathname === "/memory/reset" && req.method === "POST") {
+    return handlePostMemoryReset();
   }
   if (pathname === "/vocab" && req.method === "GET") {
     return handleGetVocab();

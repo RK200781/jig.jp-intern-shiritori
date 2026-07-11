@@ -43,6 +43,20 @@ const MODES = [
       "読みがひらがなで1文字だけの単語は使えません（「犬」は読みが「いぬ」で2文字なのでOK、" +
       "「血」は読みが「ち」で1文字なのでNGです）。",
   },
+  {
+    id: "memory",
+    name: "しりとり×暗記",
+    description:
+      "直前の単語も履歴も画面には表示されません。自分がこれまでにつないできた単語を" +
+      "頭の中で覚えておいて、毎回「最初の単語 → ... → 今までの単語 → 新しい単語」を" +
+      "頭から全部スペース区切りで入力してください。\n" +
+      "例: 1週目は「りんご」、2週目は「りんご ごりら」、3週目は「りんご ごりら らっぱ」" +
+      "というように、新しい単語を追加するたびに全部打ち直します。\n" +
+      "順番を間違えたり単語が抜けているとエラーになりますが、ゲームは終了しません。\n" +
+      "「ん」で終わる単語・すでに使った単語を追加するとその時点でゲーム終了で、" +
+      "終了時にはじめて全履歴が表示されます。\n" +
+      "接続判定・実在チェック・1文字禁止ルールは通常モードと同じです。",
+  },
 ];
 
 const MODE_ICONS = {
@@ -50,6 +64,7 @@ const MODE_ICONS = {
   vocab: "🤖",
   timeattack: "⏱️",
   shibari: "🍙",
+  memory: "🧠",
 };
 
 const ERROR_MESSAGES = {
@@ -225,6 +240,104 @@ async function submitShibariWord(word) {
     body: JSON.stringify({ nextWord: word }),
   });
   renderShibariState(data);
+}
+
+// ---- しりとり×暗記 ----
+// 直前の単語・履歴はプレイ中は表示しない。プレイヤーは毎回、これまでの単語を
+// 全部スペース区切りで入力し直す（例:「りんご ごりら らっぱ」）。
+
+const MEMORY_CONTINUE_ERROR_MESSAGES = {
+  MEMORY_EMPTY: "単語を入力してください。",
+  MEMORY_COUNT_MISMATCH: "単語の数が合っていません。これまでの単語を全部、抜けなく入力してください。",
+  MEMORY_SEQUENCE_MISMATCH: "これまでの単語の並びが違います。最初から順番に入力してください。",
+  MEMORY_TOO_SHORT: "読みがひらがな1文字の単語は使えません。ひらがなで2文字以上の単語を入力してください。",
+  MEMORY_NOT_CONNECTED: "しりとりが繋がっていません。前の単語の最後の文字から始めてください。",
+  MEMORY_NOT_FOUND: "実在する単語として見つかりませんでした。別の単語を試してください。",
+};
+
+const MEMORY_END_MESSAGES = {
+  MEMORY_DUPLICATE: "すでに使われた単語でした。ゲーム終了です。",
+  MEMORY_N_ENDING: "「ん」で終わる単語でした。ゲーム終了です。",
+};
+
+function updateMemoryWordCountDisplay(wordCount) {
+  document.getElementById("memory-word-count").textContent = String(wordCount + 1);
+}
+
+function showMemoryError(errorCode) {
+  const errorEl = document.getElementById("memory-error-message");
+  errorEl.textContent = MEMORY_CONTINUE_ERROR_MESSAGES[errorCode] ?? "入力エラーです。";
+  errorEl.classList.remove("hidden");
+}
+
+function clearMemoryError() {
+  document.getElementById("memory-error-message").classList.add("hidden");
+}
+
+function revealMemoryHistory(history) {
+  const list = document.getElementById("memory-history-list");
+  list.innerHTML = "";
+  for (const word of history) {
+    const li = document.createElement("li");
+    li.textContent = word;
+    list.appendChild(li);
+  }
+  document.getElementById("memory-reveal-title").classList.remove("hidden");
+}
+
+function showMemoryGameOver(data) {
+  const input = document.getElementById("memory-word-input");
+  const submitBtn = document.querySelector('#memory-word-form button[type="submit"]');
+  input.disabled = true;
+  submitBtn.disabled = true;
+
+  const banner = document.getElementById("memory-game-over-banner");
+  banner.textContent = MEMORY_END_MESSAGES[data.errorCode] ?? "ゲーム終了です。";
+  banner.classList.remove("hidden");
+
+  revealMemoryHistory(data.history ?? []);
+}
+
+function resetMemoryUi() {
+  const input = document.getElementById("memory-word-input");
+  input.value = "";
+  input.disabled = false;
+  document.querySelector('#memory-word-form button[type="submit"]').disabled = false;
+  updateMemoryWordCountDisplay(0);
+  clearMemoryError();
+  document.getElementById("memory-game-over-banner").classList.add("hidden");
+  document.getElementById("memory-reveal-title").classList.add("hidden");
+  document.getElementById("memory-history-list").innerHTML = "";
+}
+
+async function resetMemoryGame() {
+  await fetchJson("/memory/reset", { method: "POST" });
+  resetMemoryUi();
+}
+
+async function submitMemoryInput(input) {
+  const data = await fetchJson("/memory", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ input }),
+  });
+
+  // 記憶をきちんと試すため、結果に関わらず入力欄は毎回空にする
+  // （成功時にそのまま残すと、次のターンに読み返すだけで暗記の意味がなくなるため）。
+  document.getElementById("memory-word-input").value = "";
+
+  if (data.isGameOver) {
+    showMemoryGameOver(data);
+    return;
+  }
+
+  if (data.errorCode) {
+    showMemoryError(data.errorCode);
+  } else {
+    clearMemoryError();
+    updateMemoryWordCountDisplay(data.wordCount);
+  }
+  document.getElementById("memory-word-input").focus();
 }
 
 // ---- CPU対戦 ----
@@ -628,6 +741,9 @@ try {
     } else if (currentMode.id === "shibari") {
       await resetShibariGame();
       showScreen("screen-shibari-game");
+    } else if (currentMode.id === "memory") {
+      await resetMemoryGame();
+      showScreen("screen-memory-game");
     } else {
       await resetGame();
       showScreen("screen-game");
@@ -708,6 +824,22 @@ try {
 
   document.getElementById("shibari-reset-btn").addEventListener("click", async () => {
     await resetShibariGame();
+  });
+
+  document.getElementById("memory-back-to-select-btn").addEventListener("click", () => {
+    showScreen("screen-mode-select");
+  });
+
+  document.getElementById("memory-word-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = document.getElementById("memory-word-input");
+    const value = input.value.trim();
+    if (!value) return;
+    await submitMemoryInput(value);
+  });
+
+  document.getElementById("memory-reset-btn").addEventListener("click", async () => {
+    await resetMemoryGame();
   });
 } catch (err) {
   console.error("イベント登録に失敗しました:", err);

@@ -135,6 +135,34 @@
   </div>
 </section>
 
+<section id="screen-memory-game" class="screen card hidden">
+  <h2 class="game-title"><span class="game-title-icon">🧠</span>しりとり×暗記</h2>
+
+  <p id="memory-game-over-banner" class="banner hidden"></p>
+
+  <p class="current-word-row">次は <span id="memory-word-count" class="current-word-chip">1</span> 単語目</p>
+
+  <form id="memory-word-form" class="word-form">
+    <input
+      id="memory-word-input"
+      type="text"
+      autocomplete="off"
+      placeholder="これまでの単語を全部、頭から順にスペース区切りで入力（例: りんご ごりら らっぱ）"
+    />
+    <button type="submit">送信</button>
+  </form>
+
+  <p id="memory-error-message" class="error hidden"></p>
+
+  <h3 class="history-title hidden" id="memory-reveal-title">全履歴</h3>
+  <ol id="memory-history-list" class="history-list"></ol>
+
+  <div class="button-row">
+    <button id="memory-reset-btn" class="secondary">リセット</button>
+    <button id="memory-back-to-select-btn" class="secondary">モード選択に戻る</button>
+  </div>
+</section>
+
 </div>
 
 <script src="app.js"></script>
