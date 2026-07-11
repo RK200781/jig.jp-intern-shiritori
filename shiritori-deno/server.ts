@@ -29,6 +29,16 @@ await loadVocabWords();
 let foodWords: string[] = [];
 
 /**
+ * Pre-normalized form of every entry in foodWords (long vowel "ー" resolved
+ * to its vowel, same as getReading's output). Needed because normalizeKana
+ * always resolves "ー" for connection-judgment purposes, so a katakana input
+ * like "クッキー" normalizes to "くっきい", which would never match the
+ * list's literal "くっきー" entry without also normalizing the list side the
+ * same way.
+ */
+let normalizedFoodWords: Set<string> = new Set();
+
+/**
  * Loads data/foods.json once at startup. On failure, logs the error and
  * leaves foodWords empty so 縛りモード degrades gracefully (every word gets
  * rejected as off-category) instead of crashing the server.
@@ -38,14 +48,14 @@ async function loadFoodWords(): Promise<void> {
     const url = new URL("./data/foods.json", import.meta.url);
     const text = await Deno.readTextFile(url);
     foodWords = JSON.parse(text);
+    normalizedFoodWords = new Set(foodWords.map((w) => normalizeKana(w)));
     console.log(`[shibari] loaded ${foodWords.length} food/drink words from data/foods.json`);
   } catch (err) {
     console.error("[shibari] failed to load data/foods.json; 縛りモード will reject every word:", err);
     foodWords = [];
+    normalizedFoodWords = new Set();
   }
 }
-
-await loadFoodWords();
 
 /**
  * Small (contracted) kana are normalized to their base form only when
@@ -125,6 +135,9 @@ function normalizeKana(kana: string): string {
   }
   return result.join("");
 }
+
+// normalizeKana に依存するため、その定義より後でロードする。
+await loadFoodWords();
 
 let tokenizer: kuromoji.Tokenizer<kuromoji.IpadicFeatures> | null = null;
 
@@ -406,13 +419,13 @@ function isKnownVocabWord(word: string): boolean {
 
 /**
  * True when `word` is a member of the 縛りモード category list
- * (data/foods.json). Also used to skip the Wikipedia/Jisho existence check
- * for the same reason isKnownVocabWord does for CPU対戦: common hiragana
- * nouns often have no hiragana-titled Wikipedia article, so a curated list
- * hit is treated as sufficient proof the word is real.
+ * (data/foods.json), matching either the literal surface form or the
+ * normalized reading (so "寿司"/"スシ"/"すし" all match the same "すし"
+ * entry, and a katakana input like "クッキー" matches "くっきー" despite
+ * normalizeKana resolving both to "くっきい").
  */
-function isFoodWord(word: string): boolean {
-  return foodWords.includes(word);
+function isFoodWord(word: string, normalizedReading: string): boolean {
+  return foodWords.includes(word) || normalizedFoodWords.has(normalizedReading);
 }
 
 /**
@@ -589,7 +602,7 @@ async function handlePostShibari(req: Request): Promise<Response> {
 
   // 4. カテゴリ判定（食べ物・飲み物のみ。違反した場合はエラー表示のみで続行し、
   //    ゲームは終了しない）
-  if (!isFoodWord(nextWord) && !isFoodWord(normalizedNextReading)) {
+  if (!isFoodWord(nextWord, normalizedNextReading)) {
     return json(shibariPublicState({ errorCode: "NOT_FOOD" }), 400);
   }
 
