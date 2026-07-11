@@ -648,12 +648,14 @@ async function handlePostShibariReset(): Promise<Response> {
 
 // ---- しりとり×暗記モード ----
 
+type MemoryEndReason = "DUPLICATE" | "N_ENDING" | "COUNT_MISMATCH" | "SEQUENCE_MISMATCH" | null;
+
 interface MemoryState {
   wordHistories: string[];
   /** Kana reading for each entry in wordHistories, same index. */
   readingHistories: string[];
   isGameOver: boolean;
-  endReason: EndReason;
+  endReason: MemoryEndReason;
 }
 
 const memoryState: MemoryState = {
@@ -727,17 +729,22 @@ async function handlePostMemory(req: Request): Promise<Response> {
   const words = splitMemoryInput(rawInput);
 
   // 2. 単語数チェック（これまでの履歴 + 新しい単語1つ、ちょうどその数だけ
-  //    入力されているか。抜けている・多すぎるのどちらもここで弾く）
+  //    入力されているか。抜けている・多すぎるのどちらもここで弾く）。
+  //    暗記モードでは記憶違い＝即ゲーム終了とする（「ん」・既出と同じ扱い）。
   if (words.length !== memoryState.wordHistories.length + 1) {
-    return json(memoryPublicState({ errorCode: "MEMORY_COUNT_MISMATCH" }), 400);
+    memoryState.isGameOver = true;
+    memoryState.endReason = "COUNT_MISMATCH";
+    return json(memoryPublicState({ errorCode: "MEMORY_COUNT_MISMATCH" }));
   }
 
   // 3. これまでの履歴と、新しい単語より前の部分が完全に一致しているか
-  //    （順番の間違い・別表記への差し替えを弾く）
+  //    （順番の間違い・別表記への差し替えを弾く）。こちらも即ゲーム終了。
   const previousWords = words.slice(0, -1);
   const sequenceMatches = previousWords.every((w, i) => w === memoryState.wordHistories[i]);
   if (!sequenceMatches) {
-    return json(memoryPublicState({ errorCode: "MEMORY_SEQUENCE_MISMATCH" }), 400);
+    memoryState.isGameOver = true;
+    memoryState.endReason = "SEQUENCE_MISMATCH";
+    return json(memoryPublicState({ errorCode: "MEMORY_SEQUENCE_MISMATCH" }));
   }
 
   const nextWord = words[words.length - 1];

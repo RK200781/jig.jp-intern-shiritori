@@ -248,8 +248,6 @@ async function submitShibariWord(word) {
 
 const MEMORY_CONTINUE_ERROR_MESSAGES = {
   MEMORY_EMPTY: "単語を入力してください。",
-  MEMORY_COUNT_MISMATCH: "単語の数が合っていません。これまでの単語を全部、抜けなく入力してください。",
-  MEMORY_SEQUENCE_MISMATCH: "これまでの単語の並びが違います。最初から順番に入力してください。",
   MEMORY_TOO_SHORT: "読みがひらがな1文字の単語は使えません。ひらがなで2文字以上の単語を入力してください。",
   MEMORY_NOT_CONNECTED: "しりとりが繋がっていません。前の単語の最後の文字から始めてください。",
   MEMORY_NOT_FOUND: "実在する単語として見つかりませんでした。別の単語を試してください。",
@@ -258,6 +256,8 @@ const MEMORY_CONTINUE_ERROR_MESSAGES = {
 const MEMORY_END_MESSAGES = {
   MEMORY_DUPLICATE: "すでに使われた単語でした。ゲーム終了です。",
   MEMORY_N_ENDING: "「ん」で終わる単語でした。ゲーム終了です。",
+  MEMORY_COUNT_MISMATCH: "単語の数が合っていませんでした。ゲーム終了です。",
+  MEMORY_SEQUENCE_MISMATCH: "これまでの単語の並びが違っていました。ゲーム終了です。",
 };
 
 function updateMemoryWordCountDisplay(wordCount) {
