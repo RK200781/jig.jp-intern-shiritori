@@ -27,13 +27,19 @@ await loadVocabWords();
 
 /**
  * Small (contracted) kana are normalized to their base form only when
- * comparing the boundary characters between two words/readings.
+ * comparing the boundary characters between two words/readings (e.g. after
+ * "きんぎょ", the connection check treats its final "ょ" as "よ" so a word
+ * starting with "よ" can follow). Only hiragana entries are needed: readings
+ * reaching isConnected/endsWithN always went through getReading→normalizeKana
+ * first, which folds katakana to hiragana, so a katakana small-kana variant
+ * here would never match anything.
+ * Word history/duplicate/existence checks intentionally do NOT apply this
+ * normalization - they compare the literal surface form, so e.g. "しゃしん"
+ * and a hypothetical "しやしん" are correctly treated as different entries.
  */
 const SMALL_TO_LARGE: Record<string, string> = {
   "ぁ": "あ", "ぃ": "い", "ぅ": "う", "ぇ": "え", "ぉ": "お",
   "っ": "つ", "ゃ": "や", "ゅ": "ゆ", "ょ": "よ", "ゎ": "わ",
-  "ァ": "ア", "ィ": "イ", "ゥ": "ウ", "ェ": "エ", "ォ": "オ",
-  "ッ": "ツ", "ャ": "ヤ", "ュ": "ユ", "ョ": "ヨ", "ヮ": "ワ",
 };
 
 function normalizeEdgeChar(char: string): string {
@@ -204,6 +210,36 @@ async function wordExistsInDictionary(
   } catch {
     return null;
   }
+}
+
+interface WordReadingOk {
+  ok: true;
+  reading: string;
+  normalizedReading: string;
+}
+
+interface WordReadingError {
+  ok: false;
+  errorCode: "TOO_SHORT" | "NOT_CONNECTED";
+}
+
+/**
+ * Judgment shared by every game mode: compute the reading, reject a
+ * single-kana reading, and check connection against the previous word's
+ * reading. Mode-specific rules (existence-check exceptions, duplicate/n-ending
+ * ordering, scoring, whose turn it is, ...) stay in each mode's own handler -
+ * only the part that's genuinely identical across modes lives here, so a
+ * future mode can reuse it without re-implementing reading/connection logic.
+ */
+function validateWordReading(nextWord: string, prevReading: string | null): WordReadingOk | WordReadingError {
+  const reading = getReading(nextWord);
+  if (reading.length < 2) {
+    return { ok: false, errorCode: "TOO_SHORT" };
+  }
+  if (prevReading && !isConnected(prevReading, reading)) {
+    return { ok: false, errorCode: "NOT_CONNECTED" };
+  }
+  return { ok: true, reading, normalizedReading: normalizeKana(reading) };
 }
 
 /**
@@ -411,26 +447,16 @@ async function handlePostShiritori(req: Request): Promise<Response> {
     return json(publicState({ errorCode: "EMPTY" }), 400);
   }
 
-  // 2. 読みを取得（kuromojiによる形態素解析。外部APIには依存しない）
-  const nextReading = getReading(nextWord);
-
-  // 3. 文字数チェック（表記の文字数ではなく、ひらがな読みが1文字の単語を禁止する。
-  //    例えば「犬」は表記1文字だが読み「いぬ」は2文字なので通過する。
-  //    「血」→「ち」のような単漢字読みへの逃げを防ぐのが目的）
-  if (nextReading.length < 2) {
-    return json(publicState({ errorCode: "TOO_SHORT" }), 400);
+  // 2〜4. 読み取得・文字数チェック・接続判定（全モード共通のロジック）
+  const validation = validateWordReading(nextWord, currentReading());
+  if (!validation.ok) {
+    return json(publicState({ errorCode: validation.errorCode }), 400);
   }
-
-  // 4. 接続判定（読みベース。長音「ー」等はnormalizeKanaで正規化済み）
-  const prevReading = currentReading();
-  if (prevReading && !isConnected(prevReading, nextReading)) {
-    return json(publicState({ errorCode: "NOT_CONNECTED" }), 400);
-  }
+  const { reading: nextReading, normalizedReading: normalizedNextReading } = validation;
 
   // 5. 実在チェック（ひらがな・カタカナ・漢字のどの表記で入力されても同じ語
   //    として判定できるよう、正規化した読みも併用して辞書とWikipediaの両方
   //    を確認する。API 失敗時は fail-open で通過させる）
-  const normalizedNextReading = normalizeKana(nextReading);
   const exists = await checkWordExists(nextWord, normalizedNextReading);
   if (exists === false) {
     return json(publicState({ errorCode: "NOT_FOUND" }), 400);
@@ -560,33 +586,24 @@ async function handlePostVocabPlayer(req: Request): Promise<Response> {
     return json({ errorCode: "VOCAB_NOT_REAL_WORD", errorMessage: "単語を入力してください。" }, 400);
   }
 
-  // 3. 読みを取得（kuromojiによる形態素解析。外部APIには依存しない）
-  const nextReading = getReading(nextWord);
-
-  // 3.5 文字数チェック（表記の文字数ではなく、ひらがな読みが1文字の単語を禁止する。
-  //    例えば「犬」は表記1文字だが読み「いぬ」は2文字なので通過する。
-  //    「血」→「ち」のような単漢字読みへの逃げを防ぎ、語彙力診断としての意味を保つため）
-  if (nextReading.length < 2) {
+  // 3〜3.5. 読み取得・文字数チェック・接続判定（全モード共通のロジック）
+  const validation = validateWordReading(nextWord, vocabState.readingHistories.at(-1) ?? null);
+  if (!validation.ok) {
+    const errorMessage = validation.errorCode === "TOO_SHORT"
+      ? "読みがひらがな1文字の単語は使えません。ひらがなで2文字以上の単語を入力してください。"
+      : "前の単語に続いていません。";
     return json({
-      errorCode: "VOCAB_TOO_SHORT",
-      errorMessage: "読みがひらがな1文字の単語は使えません。ひらがなで2文字以上の単語を入力してください。",
+      errorCode: validation.errorCode === "TOO_SHORT" ? "VOCAB_TOO_SHORT" : "VOCAB_NOT_CONNECTED",
+      errorMessage,
     }, 400);
   }
-
-  const prevReading = vocabState.readingHistories.at(-1) ?? null;
-  if (prevReading && !isConnected(prevReading, nextReading)) {
-    return json({
-      errorCode: "VOCAB_NOT_CONNECTED",
-      errorMessage: "前の単語に続いていません。",
-    }, 400);
-  }
+  const { reading: nextReading, normalizedReading: normalizedNextReading } = validation;
 
   // 4. 実在チェック（ひらがな・カタカナ・漢字のどの表記で入力されても
   //    同じ語として判定できるよう、正規化した読みも併用する。
   //    自前の単語データベースにあれば即通過。無ければ辞書(Jisho)と
   //    Wikipediaの両方で確認し、どちらも「存在しない」と判定した場合の
   //    み却下する。API失敗時はfail-openで通過）
-  const normalizedNextReading = normalizeKana(nextReading);
   if (!isKnownVocabWord(nextWord) && !isKnownVocabWord(normalizedNextReading)) {
     const exists = await checkWordExists(nextWord, normalizedNextReading);
     if (exists === false) {
