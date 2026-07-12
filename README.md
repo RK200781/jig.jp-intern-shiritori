@@ -209,6 +209,10 @@ deno run -A --watch server.ts
   — Jisho（JMdict辞書API）の非公式だが広く使われているAPI仕様の確認（実在単語チェックに使用）
 - [kuromoji.js (GitHub)](https://github.com/takuyaa/kuromoji.js)
   — 読み取得に使っている形態素解析ライブラリの使い方確認
+- [Deno で環境変数を設定する方法 #dotenv - Qiita](https://qiita.com/wataru86/items/4a724aaf99dd042e35e2)
+  — ローカルの `.env` ファイルと Deno Deploy 側それぞれでの環境変数の設定方法の確認
+  （開発初期に `YAHOO_APP_ID` を環境変数経由で渡す際に参照。後にkuromojiへの
+  置き換えでAPIキー自体が不要になった）
 - [ルビ振り(V2) - Yahoo!デベロッパーネットワーク](https://developer.yahoo.co.jp/webapi/jlp/furigana/v2/furigana.html)
   — 開発初期に読み取得で使用していたAPI（後にkuromojiへ置き換え。詳細は
   トラブルシューティング事例を参照）
