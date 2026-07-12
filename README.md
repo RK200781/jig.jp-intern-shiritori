@@ -197,6 +197,8 @@ deno run -A --watch server.ts
 
 ## 参考にしたWebサイト
 
+- [夏季インターン2026 課題ページ](https://jigintern.github.io/summer-2026-assignment/)
+  — 本課題の仕様・提出条件の確認
 - Deno公式ドキュメント（[docs.deno.com](https://docs.deno.com) / [deno.land](https://deno.land)）
   — `Deno.serve` の使い方、`@std/http/file-server` の `serveDir` の使い方の確認
 - [MDN Web Docs](https://developer.mozilla.org/ja/docs/Web) — `fetch`・`FormData`・
