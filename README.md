@@ -205,12 +205,15 @@ deno run -A --watch server.ts
   — `Deno.serve` の使い方、`@std/http/file-server` の `serveDir` の使い方の確認
 - [MDN Web Docs](https://developer.mozilla.org/ja/docs/Web) — `fetch`・`FormData`・
   `setInterval`・DOM操作などフロントエンドのWeb APIの仕様確認
+  （Claude Codeが実装時に参照）
 - [MediaWiki API:Opensearch](https://www.mediawiki.org/wiki/API:Opensearch)
-  — Wikipedia OpenSearch APIのリクエスト/レスポンス仕様の確認（実在単語チェックに使用）
+  — Wikipedia OpenSearch APIのリクエスト/レスポンス仕様の確認（実在単語チェックに使用。
+  Claude Codeが実装時に参照）
 - [Jisho APIについてのフォーラム投稿](https://jisho.org/forum/54fefc1f6e73340b1f160000-is-there-any-kind-of-search-api)
-  — Jisho（JMdict辞書API）の非公式だが広く使われているAPI仕様の確認（実在単語チェックに使用）
+  — Jisho（JMdict辞書API）の非公式だが広く使われているAPI仕様の確認（実在単語チェックに使用。
+  Claude Codeが実装時に参照）
 - [kuromoji.js (GitHub)](https://github.com/takuyaa/kuromoji.js)
-  — 読み取得に使っている形態素解析ライブラリの使い方確認
+  — 読み取得に使っている形態素解析ライブラリの使い方確認（Claude Codeが実装時に参照）
 - [Deno で環境変数を設定する方法 #dotenv - Qiita](https://qiita.com/wataru86/items/4a724aaf99dd042e35e2)
   — ローカルの `.env` ファイルと Deno Deploy 側それぞれでの環境変数の設定方法の確認
   （開発初期に `YAHOO_APP_ID` を環境変数経由で渡す際に参照。後にkuromojiへの
